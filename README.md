@@ -99,7 +99,7 @@ Custom themes accept any alliance or corporation logo and a configurable color p
              ▲
              │  feed
     ┌────────┴────────┐
-    │   zKillboard    │        RedisQ + R2Z2
+    │   zKillboard    │        R2Z2 feed
     │   (external)    │
     └─────────────────┘
 ```
@@ -124,7 +124,7 @@ Custom themes accept any alliance or corporation logo and a configurable color p
 
 | Category | Workflows | Purpose |
 |----------|-----------|---------|
-| `polling/` | r2z2_poll, redisq_poll | Pull live killmails from zKillboard feeds |
+| `polling/` | r2z2_poll, redisq_poll | Pull live killmails from zKillboard via R2Z2 |
 | `webhooks/` | feed, intel, stats, search, cache, system | Serve frontend API requests from Redis |
 | `indexing/` | killmail_index, archive_index (×3), daily_index, corp_name_reindex | Index kills across 20+ dimensions in Redis |
 | `maintenance/` | db_heal, redis_tool, geo_worker | Data integrity, cache ops, geolocation |
@@ -144,7 +144,7 @@ The three `archive_index` workflows run in parallel as separate workers, each ha
 | 3D rendering | Three.js 0.163 (OrbitControls, UnrealBloom) |
 | Workflow engine | n8n (self-hosted) |
 | Cache / data store | Redis (Sorted Sets, Hashes, Lua scripting) |
-| Kill data source | zKillboard — RedisQ + R2Z2 |
+| Kill data source | zKillboard — R2Z2 |
 | EVE data | ESI (EVE Swagger Interface) |
 | Infrastructure | Proxmox (PVE1/PVE2), Docker, Cloudflare Tunnel |
 
@@ -240,10 +240,10 @@ Change `API_BASE_URL` to point at your own n8n instance.
 ## Data Flow
 
 ```
-zKillboard RedisQ
+zKillboard R2Z2
        │
        ▼
-  r2z2_poll / redisq_poll      ← n8n polling workflows
+  r2z2_poll                    ← n8n polling workflow
        │
        ▼
   killmail_index                ← indexes kill into Redis by:
