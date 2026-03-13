@@ -165,7 +165,7 @@ Custom themes accept any alliance or corporation logo and a configurable color p
 |----------|-----------|---------|
 | `polling/` | r2z2_poll *(active)*, redisq_poll *(standby fallback)* | Pull live killmails from zKillboard via R2Z2; RedisQ kept inactive as backup |
 | `webhooks/` | feed, intel, stats, search, cache, system | Serve frontend API requests from Redis |
-| `indexing/` | killmail_index, archive_index (×3), daily_index, corp_name_reindex | Index kills across 20+ dimensions in Redis |
+| `indexing/` | killmail_index, archive_index (×3), daily_index | Index kills across 20+ dimensions in Redis |
 | `maintenance/` | db_heal, redis_tool, geo_worker | Data integrity, cache ops, geolocation |
 | `monitoring/` | r2z2_monitor_backend | Feed health and KPM computation |
 | `bots/` | alfred + Alfred sub-workflows | Discord bot: character/market/route/system lookups |
@@ -216,9 +216,7 @@ AIN/
 │   │   ├── monitoring/         # Feed health monitoring
 │   │   └── bots/               # Alfred Discord bot
 │   └── tools/                  # Standalone utility pages
-│       ├── ain-zkb/            # ZKB viewer tool
-│       ├── AlfredInt/          # Alfred interface
-│       └── r2z2_monitor.html   # Feed monitor page
+│       └── ain-zkb/            # ZKB viewer tool
 ├── public/                     # Static assets
 │   ├── data/systems.json       # EVE system coordinates (SDE)
 │   └── logo.mp4                # App logo animation
