@@ -57,7 +57,8 @@ function KillFeed({
   const [viewMode, setViewMode] = useState(() => {
     try {
       const savedMode = localStorage.getItem('killFeedViewMode');
-      return savedMode || 'standard';
+      if (savedMode) return savedMode;
+      return window.innerWidth < 768 ? 'compact' : 'standard';
     } catch (e) {
       return 'standard';
     }
