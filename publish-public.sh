@@ -31,6 +31,12 @@ sed -i 's/Ore Ya Serious/YOUR_DISCORD_SERVER_NAME/g' \
 sed -i 's/192\.168\.30\.56:6333/YOUR_QDRANT_HOST:6333/g' \
   Backend/workflows/bots/alfred.json
 
+# Remove private tools/workflows so they don't get pushed to public
+git rm -r --cached Backend/tools/AlfredInt/ 2>/dev/null || true
+git rm --cached Backend/workflows/webhooks/webhook_intel.json 2>/dev/null || true
+git rm -r --cached Backend/private/ 2>/dev/null || true
+rm -rf Backend/tools/AlfredInt/ Backend/workflows/webhooks/webhook_intel.json Backend/private/
+
 # Commit the sanitized state
 git add -A
 git commit -m "chore: sanitized publish $(date '+%Y-%m-%d %H:%M')"

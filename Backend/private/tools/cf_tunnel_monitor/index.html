@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LookNet — Tunnel Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Barlow+Condensed:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #060a0f;
+            --surface: #0c1117;
+            --border: rgba(255,255,255,0.07);
+            --text: #e2e8f0;
+            --muted: #64748b;
+            --dim: #334155;
+            --orange: #f97316;
+            --orange-dim: rgba(249,115,22,0.12);
+            --orange-border: rgba(249,115,22,0.3);
+            --green: #22c55e;
+            --green-dim: rgba(34,197,94,0.1);
+            --red: #ef4444;
+            --red-dim: rgba(239,68,68,0.1);
+            --yellow: #eab308;
+            --blue: #3b82f6;
+            --blue-dim: rgba(59,130,246,0.1);
+            --cyan: #06b6d4;
+            --purple: #a855f7;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background:var(--bg); color:var(--text); font-family:'IBM Plex Mono',monospace; min-height:100vh; }
+        body::before { content:''; position:fixed; inset:0; background-image:linear-gradient(rgba(249,115,22,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(249,115,22,0.025) 1px,transparent 1px); background-size:48px 48px; pointer-events:none; z-index:0; }
+        body::after { content:''; position:fixed; top:-200px; right:-200px; width:600px; height:600px; background:radial-gradient(circle,rgba(249,115,22,0.05) 0%,transparent 70%); pointer-events:none; z-index:0; }
+        .wrap { position:relative; z-index:1; max-width:1500px; margin:0 auto; padding:28px 24px 80px; }
+
+        header { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+        .brand { display:flex; align-items:center; gap:14px; }
+        .brand-icon { width:40px; height:40px; border:1px solid var(--orange-border); border-radius:8px; display:flex; align-items:center; justify-content:center; background:var(--orange-dim); flex-shrink:0; }
+        .brand-icon svg { width:20px; height:20px; color:var(--orange); }
+        .brand h1 { font-family:'Barlow Condensed',sans-serif; font-size:20px; font-weight:700; letter-spacing:2px; color:#fff; }
+        .brand h1 span { color:var(--orange); }
+        .brand p { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:2px; }
+        .hdr-right { display:flex; align-items:center; gap:14px; }
+        .live-pill { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--muted); letter-spacing:1.5px; }
+        .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 7px var(--green); animation:blink 2s ease-in-out infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.5} }
+        #last-updated { font-size:10px; color:var(--dim); }
+        .rbtn { background:var(--orange-dim); border:1px solid var(--orange-border); color:var(--orange); padding:5px 12px; border-radius:6px; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:1px; cursor:pointer; text-transform:uppercase; transition:all .2s; }
+        .rbtn:hover { background:rgba(249,115,22,.22); }
+        .rbtn.spin { opacity:.5; pointer-events:none; }
+
+        /* STRIP */
+        .strip { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px; }
+        @media(max-width:1100px) { .strip { grid-template-columns:repeat(2, 1fr); } }
+        @media(max-width:600px) { .strip { grid-template-columns:1fr; } }
+        .sc { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px 18px; display:flex; flex-direction:column; position:relative; overflow:hidden; }
+        .sl { font-size:10px; color:var(--muted); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; }
+        .sv { font-family:'Barlow Condensed',sans-serif; font-size:28px; font-weight:700; color:#fff; line-height:1; }
+        .sv.bad { color:var(--red); } .sv.accent { color:var(--orange); } .sv.cyan { color:var(--cyan); } .sv.ok { color:var(--green); } .sv.warn { color:var(--yellow); }
+        .ss { font-size:10px; color:var(--dim); margin-top:8px; position:relative; z-index:2; }
+
+        /* SPARKLINE */
+        .spark { display:flex; align-items:flex-end; justify-content:flex-end; gap:2px; height:36px; opacity:0.3; position:absolute; bottom:0; left:0; right:0; padding:0 18px; pointer-events:none; z-index:1; }
+        .spark-bar { flex:1; max-width:4px; background:currentColor; min-height:2px; border-radius:2px 2px 0 0; transition:height 0.3s; }
+
+        /* DRIFT BANNER */
+        .drift-banner { display:flex; align-items:center; gap:12px; background:rgba(234,179,8,0.1); border:1px solid rgba(234,179,8,0.3); color:var(--yellow); padding:14px 20px; border-radius:10px; margin-bottom:24px; font-size:12px; }
+        .drift-banner svg { flex-shrink:0; }
+
+        /* LAYOUT */
+        .b-grid { display:grid; grid-template-columns:1.6fr 1fr; gap:20px; align-items:start; }
+        @media(max-width:1100px) { .b-grid { grid-template-columns:1fr; } }
+        .col { display:flex; flex-direction:column; gap:20px; min-width:0; }
+
+        /* PANEL */
+        .panel { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+        .ph { display:flex; align-items:center; justify-content:space-between; padding:12px 18px; border-bottom:1px solid var(--border); background:rgba(255,255,255,.02); }
+        .pt { font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:600; letter-spacing:2px; text-transform:uppercase; color:var(--muted); }
+        .pb { padding:18px; }
+        .badge { font-size:9px; letter-spacing:1.5px; text-transform:uppercase; padding:3px 8px; border-radius:4px; border:1px solid; white-space:nowrap; }
+        .badge.green { color:var(--green); border-color:rgba(34,197,94,.3); background:var(--green-dim); }
+        .badge.orange { color:var(--orange); border-color:var(--orange-border); background:var(--orange-dim); }
+        .badge.red { color:var(--red); border-color:rgba(239,68,68,.3); background:var(--red-dim); }
+        .badge.blue { color:var(--blue); border-color:rgba(59,130,246,.3); background:var(--blue-dim); }
+        .badge.cyan { color:var(--cyan); border-color:rgba(6,182,212,.3); background:rgba(6,182,212,.08); }
+        .badge.purple { color:var(--purple); border-color:rgba(168,85,247,.3); background:rgba(168,85,247,.08); }
+        .badge.muted { color:var(--muted); border-color:var(--border); background:transparent; }
+
+        /* STATUS PILL */
+        .spill { display:inline-flex; align-items:center; gap:6px; padding:4px 11px; border-radius:20px; font-size:11px; letter-spacing:1px; text-transform:uppercase; border:1px solid; }
+        .spill.healthy { color:var(--green); border-color:rgba(34,197,94,.3); background:var(--green-dim); }
+        .spill.degraded { color:var(--yellow); border-color:rgba(234,179,8,.3); background:rgba(234,179,8,.08); }
+        .spill.inactive { color:var(--red); border-color:rgba(239,68,68,.3); background:var(--red-dim); }
+        .sdot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+        .healthy .sdot { animation:blink 2s ease-in-out infinite; box-shadow:0 0 4px currentColor; }
+
+        /* META GRID */
+        .mg { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:16px; }
+        .mc { background:var(--bg); padding:10px 14px; }
+        .ml { font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+        .mv { font-size:13px; color:var(--text); }
+        .mv.big { font-family:'Barlow Condensed',sans-serif; font-size:22px; font-weight:700; }
+        .mv.orange { color:var(--orange); } .mv.green { color:var(--green); } .mv.cyan { color:var(--cyan); }
+
+        /* CONNECTOR */
+        .cc { border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg); margin-bottom:10px; }
+        .cc:last-child { margin-bottom:0; }
+        .ch { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:rgba(255,255,255,.015); border-bottom:1px solid var(--border); }
+        .cnum { font-family:'Barlow Condensed',sans-serif; font-size:17px; font-weight:700; color:var(--dim); width:18px; }
+        .cid { font-size:11px; color:var(--text); }
+        .cbody { padding:12px 14px; }
+        .cstats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:10px; }
+        .csl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:3px; }
+        .csv { font-family:'Barlow Condensed',sans-serif; font-size:20px; font-weight:700; color:#fff; }
+        .csv.green { color:var(--green); } .csv.cyan { color:var(--cyan); } .csv.red { color:var(--red); }
+        .bw { margin-top:4px; }
+        .bt { height:3px; background:var(--dim); border-radius:2px; overflow:hidden; }
+        .bf { height:100%; border-radius:2px; transition:width .8s ease; }
+        .bl { font-size:9px; color:var(--muted); margin-top:3px; }
+        .rcs { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+        .rc { font-size:10px; padding:2px 7px; border-radius:4px; border:1px solid; }
+        .rc.c2 { color:var(--green); border-color:rgba(34,197,94,.3); background:var(--green-dim); }
+        .rc.c3 { color:var(--cyan); border-color:rgba(6,182,212,.3); background:rgba(6,182,212,.08); }
+        .rc.c4 { color:var(--yellow); border-color:rgba(234,179,8,.3); background:rgba(234,179,8,.08); }
+        .rc.c5 { color:var(--red); border-color:rgba(239,68,68,.3); background:var(--red-dim); }
+        .cfoot { padding:7px 14px; border-top:1px solid var(--border); font-size:9px; color:var(--dim); display:flex; gap:14px; flex-wrap:wrap; }
+
+        /* LOAD BALANCE */
+        .lbrow { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+        .lblabel { font-size:10px; color:var(--muted); width:110px; flex-shrink:0; }
+        .lblabel span { color:var(--dim); display:block; font-size:9px; }
+        .lbtrack { flex:1; height:8px; background:var(--dim); border-radius:4px; overflow:hidden; }
+        .lbfill { height:100%; border-radius:4px; transition:width .8s ease; }
+        .lbfill.n1 { background:linear-gradient(90deg,var(--orange),#fbbf24); }
+        .lbfill.n2 { background:linear-gradient(90deg,var(--cyan),#6366f1); }
+        .lbpct { font-family:'Barlow Condensed',sans-serif; font-size:20px; font-weight:700; width:44px; text-align:right; flex-shrink:0; }
+        .lbpct.n1 { color:var(--orange); } .lbpct.n2 { color:var(--cyan); }
+        .lbnote { font-size:10px; padding:8px 12px; border-radius:7px; border:1px solid; display:flex; align-items:flex-start; gap:7px; margin-top:4px; line-height:1.5; }
+        .lbnote.ok { color:var(--green); border-color:rgba(34,197,94,.3); background:var(--green-dim); }
+        .lbnote.info { color:var(--cyan); border-color:rgba(6,182,212,.3); background:rgba(6,182,212,.08); }
+        .lbnote.warn { color:var(--yellow); border-color:rgba(234,179,8,.3); background:rgba(234,179,8,.08); }
+
+        /* PROC GRID */
+        .pg { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--border); border-radius:8px; overflow:hidden; margin-bottom:14px; }
+        .pc { background:var(--bg); padding:12px 14px; }
+        .pcl { font-size:9px; color:var(--muted); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:4px; }
+        .pcv { font-family:'Barlow Condensed',sans-serif; font-size:20px; font-weight:700; color:#fff; }
+        .pcv.ok { color:var(--green); } .pcv.warn { color:var(--yellow); } .pcv.cyan { color:var(--cyan); } .pcv.red { color:var(--red); }
+        .pcs { font-size:9px; color:var(--dim); margin-top:2px; }
+
+        /* QUIC TABLE */
+        .qt { width:100%; border-collapse:collapse; font-size:11px; }
+        .qt th { text-align:left; padding:7px 12px; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+        .qt td { padding:9px 12px; border-bottom:1px solid rgba(255,255,255,.03); vertical-align:middle; }
+        .qt tr:last-child td { border-bottom:none; }
+        .qt tr:hover td { background:rgba(255,255,255,.02); }
+        .qnum { font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:700; }
+        .qnum.green { color:var(--green); } .qnum.cyan { color:var(--cyan); } .qnum.orange { color:var(--orange); } .qnum.red { color:var(--red); }
+        .eloc { font-size:10px; color:var(--orange); background:var(--orange-dim); border:1px solid var(--orange-border); padding:2px 7px; border-radius:4px; letter-spacing:1px; display:inline-block; }
+        .rttbar { height:4px; border-radius:2px; background:var(--dim); overflow:hidden; margin-top:3px; }
+        .rttfill { height:100%; background:linear-gradient(90deg,var(--green),var(--cyan)); border-radius:2px; }
+        .cwbar { height:4px; border-radius:2px; background:var(--dim); overflow:hidden; margin-top:3px; }
+        .cwfill { height:100%; background:linear-gradient(90deg,var(--blue),var(--purple)); border-radius:2px; }
+
+        /* RESP CODE TABLE */
+        .cdt { width:100%; border-collapse:collapse; font-size:11px; }
+        .cdt th { text-align:left; padding:7px 14px; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); }
+        .cdt td { padding:8px 14px; border-bottom:1px solid rgba(255,255,255,.03); vertical-align:middle; }
+        .cdt tr:last-child td { border-bottom:none; }
+        .cdt tr:hover td { background:rgba(255,255,255,.02); }
+        .cdbadge { font-family:'Barlow Condensed',sans-serif; font-size:17px; font-weight:700; }
+        .ilb { height:4px; border-radius:2px; background:var(--dim); overflow:hidden; }
+        .ilf { height:100%; border-radius:2px; }
+
+        /* NETIO */
+        .nio { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+        .nio-lbl { font-size:10px; color:var(--muted); width:60px; flex-shrink:0; }
+        .nio-bar { flex:1; height:5px; background:var(--dim); border-radius:3px; overflow:hidden; }
+        .nio-rx { height:100%; background:linear-gradient(90deg,var(--green),var(--cyan)); border-radius:3px; }
+        .nio-tx { height:100%; background:linear-gradient(90deg,var(--orange),#fbbf24); border-radius:3px; }
+        .nio-val { font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:700; width:72px; text-align:right; }
+        .nio-val.rx { color:var(--cyan); } .nio-val.tx { color:var(--orange); }
+
+        /* NODE TABS */
+        .ntabs { display:flex; border-bottom:1px solid var(--border); }
+        .ntab { padding:10px 18px; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .2s; }
+        .ntab.active { color:var(--orange); border-bottom-color:var(--orange); }
+        .ntc { display:none; padding:18px; }
+        .ntc.active { display:block; }
+
+        /* RPC */
+        .rpcrow { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid rgba(255,255,255,.03); font-size:11px; }
+        .rpcrow:last-child { border-bottom:none; }
+        .rpcm { color:var(--muted); font-size:10px; }
+        .rpcvals { display:flex; gap:12px; align-items:center; }
+        .rpcn { font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:700; color:#fff; }
+
+        /* TIMELINE */
+        .tl { display:flex; flex-direction:column; }
+        .tli { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.03); }
+        .tli:last-child { border-bottom:none; }
+        .tldc { display:flex; flex-direction:column; align-items:center; width:18px; flex-shrink:0; padding-top:4px; }
+        .tld { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+        .tld.green { background:var(--green); box-shadow:0 0 5px var(--green); }
+        .tld.blue { background:var(--blue); }
+        .tld.orange { background:var(--orange); }
+        .tll { flex:1; width:1px; background:var(--border); margin-top:4px; }
+        .tlev { font-size:11px; color:var(--text); margin-bottom:2px; }
+        .tlt { font-size:10px; color:var(--dim); }
+
+        .no-data { color:var(--dim); font-size:11px; padding:20px; text-align:center; }
+        .sect { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+        .build-pill { font-size:10px; color:var(--purple); background:rgba(168,85,247,.08); border:1px solid rgba(168,85,247,.25); padding:3px 9px; border-radius:20px; }
+        footer { margin-top:32px; padding-top:16px; border-top:1px solid var(--border); display:flex; justify-content:space-between; font-size:10px; color:var(--dim); }
+
+        /* ── MODE TOGGLE ───────────────────────────────────────── */
+        .mode-toggle { display:flex; align-items:center; gap:2px; background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:8px; padding:3px; }
+        .mtab { padding:5px 14px; border-radius:6px; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; color:var(--muted); transition:all .2s; border:1px solid transparent; white-space:nowrap; }
+        .mtab.active-overview { color:#fff; background:var(--orange-dim); border-color:var(--orange-border); }
+        .mtab.active-live { color:var(--green); background:var(--green-dim); border-color:rgba(34,197,94,.3); }
+
+        /* ── LIVE MODE SHELL ────────────────────────────────────── */
+        #live-view { display:none; }
+        #overview-view { display:block; }
+        body.live-mode #live-view { display:block; }
+        body.live-mode #overview-view { display:none; }
+
+        /* Live mode: scan-line overlay intensifies */
+        body.live-mode::before { background-image:linear-gradient(rgba(34,197,94,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(34,197,94,0.015) 1px,transparent 1px); background-size:48px 48px; }
+        body.live-mode::after { background:radial-gradient(circle,rgba(34,197,94,0.04) 0%,transparent 70%); }
+
+        /* Live header glow */
+        body.live-mode header { border-bottom-color:rgba(34,197,94,0.15); }
+        body.live-mode .brand h1 span { color:var(--green); }
+        body.live-mode .brand-icon { background:rgba(34,197,94,0.1); border-color:rgba(34,197,94,0.3); }
+        body.live-mode .brand-icon svg { color:var(--green); }
+
+        /* ── LIVE BIG NUMBERS ROW ───────────────────────────────── */
+        .live-hero { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; }
+        @media(max-width:1100px){.live-hero{grid-template-columns:repeat(2,1fr);}}
+        @media(max-width:600px){.live-hero{grid-template-columns:1fr;}}
+
+        .lhc { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px 22px; position:relative; overflow:hidden; transition:border-color .3s; }
+        .lhc.pulse-green { border-color:rgba(34,197,94,.4); box-shadow:0 0 24px rgba(34,197,94,.07); }
+        .lhc.pulse-red { border-color:rgba(239,68,68,.4); box-shadow:0 0 24px rgba(239,68,68,.07); }
+        .lhc.pulse-cyan { border-color:rgba(6,182,212,.4); box-shadow:0 0 24px rgba(6,182,212,.07); }
+        .lhc.pulse-orange { border-color:rgba(249,115,22,.4); box-shadow:0 0 24px rgba(249,115,22,.07); }
+        .lhc-label { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+        .lhc-label-dot { width:5px; height:5px; border-radius:50%; background:currentColor; animation:blink 1.5s ease-in-out infinite; }
+        .lhc-val { font-family:'Barlow Condensed',sans-serif; font-size:56px; font-weight:800; line-height:1; color:#fff; letter-spacing:-1px; transition:color .3s; }
+        .lhc-val.green { color:var(--green); } .lhc-val.red { color:var(--red); } .lhc-val.cyan { color:var(--cyan); } .lhc-val.orange { color:var(--orange); } .lhc-val.yellow { color:var(--yellow); }
+        .lhc-unit { font-size:16px; font-weight:400; color:var(--muted); margin-left:4px; }
+        .lhc-sub { font-size:10px; color:var(--dim); margin-top:8px; display:flex; align-items:center; gap:8px; }
+        .lhc-delta { font-size:11px; padding:2px 8px; border-radius:4px; font-family:'Barlow Condensed',sans-serif; font-weight:700; letter-spacing:.5px; }
+        .lhc-delta.up { color:var(--green); background:var(--green-dim); }
+        .lhc-delta.down { color:var(--red); background:var(--red-dim); }
+        .lhc-delta.flat { color:var(--muted); background:rgba(255,255,255,.04); }
+        /* corner accent */
+        .lhc::after { content:''; position:absolute; top:0; right:0; width:60px; height:60px; border-radius:0 10px 0 60px; opacity:.5; pointer-events:none; }
+        .pulse-green .lhc::after,.lhc.pulse-green::after { background:radial-gradient(circle at top right,rgba(34,197,94,.12),transparent 70%); }
+        .pulse-cyan .lhc::after,.lhc.pulse-cyan::after { background:radial-gradient(circle at top right,rgba(6,182,212,.12),transparent 70%); }
+        .pulse-orange .lhc::after,.lhc.pulse-orange::after { background:radial-gradient(circle at top right,rgba(249,115,22,.12),transparent 70%); }
+        .pulse-red .lhc::after,.lhc.pulse-red::after { background:radial-gradient(circle at top right,rgba(239,68,68,.12),transparent 70%); }
+
+        /* ── LIVE MIDDLE GRID ───────────────────────────────────── */
+        .live-mid { display:grid; grid-template-columns:1fr 1fr 1.2fr; gap:16px; margin-bottom:20px; }
+        @media(max-width:1100px){.live-mid{grid-template-columns:1fr 1fr;}}
+        @media(max-width:600px){.live-mid{grid-template-columns:1fr;}}
+
+        /* ── NODE VITALS ────────────────────────────────────────── */
+        .nv-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+        .nv-head { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,.015); }
+        .nv-name { font-family:'Barlow Condensed',sans-serif; font-size:18px; font-weight:700; letter-spacing:1px; }
+        .nv-ip { font-size:9px; color:var(--dim); margin-top:1px; }
+        .nv-body { padding:14px 16px; }
+        .nv-row { display:flex; justify-content:space-between; align-items:baseline; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.03); }
+        .nv-row:last-child { border-bottom:none; }
+        .nv-k { font-size:10px; color:var(--muted); letter-spacing:.5px; }
+        .nv-v { font-family:'Barlow Condensed',sans-serif; font-size:18px; font-weight:700; color:#fff; }
+        .nv-v.green { color:var(--green); } .nv-v.red { color:var(--red); } .nv-v.cyan { color:var(--cyan); } .nv-v.orange { color:var(--orange); } .nv-v.yellow { color:var(--yellow); }
+        .nv-v small { font-size:10px; font-weight:400; color:var(--muted); margin-left:2px; }
+
+        /* ── LIVE BW METER ──────────────────────────────────────── */
+        .bw-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+        .bw-title { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:14px; }
+        .bw-lane { margin-bottom:14px; }
+        .bw-lane:last-child { margin-bottom:0; }
+        .bw-lane-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+        .bw-lane-lbl { font-size:10px; color:var(--muted); }
+        .bw-lane-val { font-family:'Barlow Condensed',sans-serif; font-size:22px; font-weight:700; }
+        .bw-track { height:6px; background:var(--dim); border-radius:3px; overflow:hidden; }
+        .bw-fill-rx { height:100%; background:linear-gradient(90deg,var(--green),var(--cyan)); border-radius:3px; transition:width .8s ease; }
+        .bw-fill-tx { height:100%; background:linear-gradient(90deg,var(--orange),#fbbf24); border-radius:3px; transition:width .8s ease; }
+        .bw-fill-err { height:100%; background:linear-gradient(90deg,var(--red),#f97316); border-radius:3px; transition:width .8s ease; }
+        .bw-sparkline { display:flex; align-items:flex-end; gap:2px; height:28px; margin-top:8px; }
+        .bw-spark-bar { flex:1; min-height:2px; border-radius:1px 1px 0 0; transition:height .3s; opacity:.7; }
+
+        /* ── LIVE ERRORS FEED ───────────────────────────────────── */
+        .err-feed { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+        .err-feed-head { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,.015); }
+        .err-feed-title { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; }
+        .err-feed-body { max-height:260px; overflow-y:auto; }
+        .err-feed-body::-webkit-scrollbar { width:3px; }
+        .err-feed-body::-webkit-scrollbar-track { background:transparent; }
+        .err-feed-body::-webkit-scrollbar-thumb { background:var(--dim); border-radius:2px; }
+        .efi { display:flex; align-items:center; gap:10px; padding:9px 16px; border-bottom:1px solid rgba(255,255,255,.03); animation:efSlide .25s ease; }
+        @keyframes efSlide { from{opacity:0;transform:translateX(-6px);} to{opacity:1;transform:none;} }
+        .efi:last-child { border-bottom:none; }
+        .efi-code { font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:700; width:36px; flex-shrink:0; }
+        .efi-code.c5 { color:var(--red); } .efi-code.c4 { color:var(--yellow); }
+        .efi-host { font-size:10px; color:var(--text); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .efi-host span { color:var(--cyan); }
+        .efi-meta { font-size:9px; color:var(--dim); flex-shrink:0; text-align:right; }
+        .efi-cnt { font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:700; color:var(--orange); }
+
+        /* ── QUIC MINI ──────────────────────────────────────────── */
+        .qm-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+        .qm-head { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,.015); }
+        .qm-title { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; }
+        .qm-body { padding:14px 16px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .qm-conn { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:10px 12px; }
+        .qm-conn-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+        .qm-node { font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:700; }
+        .qm-pop { font-size:9px; color:var(--orange); background:var(--orange-dim); border:1px solid var(--orange-border); padding:1px 6px; border-radius:3px; letter-spacing:1px; }
+        .qm-rtt { font-family:'Barlow Condensed',sans-serif; font-size:22px; font-weight:800; color:var(--green); }
+        .qm-rtt small { font-size:10px; font-weight:400; color:var(--muted); }
+        .qm-state { font-size:9px; color:var(--dim); margin-top:2px; }
+
+        /* ── LIVE POLL INDICATOR ────────────────────────────────── */
+        .poll-bar-wrap { height:2px; background:rgba(255,255,255,.04); position:relative; overflow:hidden; margin-bottom:20px; border-radius:1px; }
+        .poll-bar { height:100%; background:linear-gradient(90deg,var(--green),var(--cyan)); border-radius:1px; transition:width linear; }
+        .poll-label { font-size:9px; color:var(--dim); letter-spacing:1px; text-transform:uppercase; text-align:right; margin-top:4px; margin-bottom:16px; }
+
+        /* ── LIVE STREAM TICKER ─────────────────────────────────── */
+        .stream-ticker { background:var(--surface); border:1px solid rgba(6,182,212,.2); border-radius:10px; padding:14px 18px; margin-bottom:20px; display:flex; align-items:center; gap:20px; }
+        .st-label { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; flex-shrink:0; }
+        .st-streams { display:flex; gap:8px; flex:1; flex-wrap:wrap; }
+        .st-node { display:flex; align-items:center; gap:8px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 12px; }
+        .st-node-name { font-size:10px; color:var(--muted); }
+        .st-node-val { font-family:'Barlow Condensed',sans-serif; font-size:20px; font-weight:700; color:var(--cyan); }
+        .st-total { font-family:'Barlow Condensed',sans-serif; font-size:32px; font-weight:800; color:var(--cyan); flex-shrink:0; }
+        .st-total small { font-size:12px; font-weight:400; color:var(--muted); margin-left:3px; }
+
+        /* flash animation on value change */
+        @keyframes flashGreen { 0%{background:rgba(34,197,94,.25);} 100%{background:transparent;} }
+        @keyframes flashRed { 0%{background:rgba(239,68,68,.2);} 100%{background:transparent;} }
+        .flash-green { animation:flashGreen .6s ease; }
+        .flash-red { animation:flashRed .6s ease; }
+
+        /* ── WEBHOOK OFFENDER PANEL ─────────────────────────────── */
+        .wo-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:20px; }
+        .wo-head { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,.015); }
+        .wo-title { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; }
+        .wo-row { padding:12px 16px; border-bottom:1px solid rgba(255,255,255,.03); display:grid; grid-template-columns:1fr auto; gap:12px; align-items:start; }
+        .wo-row:last-child { border-bottom:none; }
+        .wo-row.critical { border-left:2px solid var(--red); }
+        .wo-row.warning { border-left:2px solid var(--yellow); }
+        .wo-endpoint { font-size:10px; color:var(--text); margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .wo-host { color:var(--muted); }
+        .wo-path { color:var(--cyan); }
+        .wo-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+        .wo-codes { display:flex; gap:4px; flex-wrap:wrap; }
+        .wo-code { font-size:9px; padding:1px 6px; border-radius:3px; border:1px solid; font-family:"Barlow Condensed",sans-serif; font-weight:700; letter-spacing:.5px; }
+        .wo-code.c5 { color:var(--red); border-color:rgba(239,68,68,.3); background:var(--red-dim); }
+        .wo-code.c4 { color:var(--yellow); border-color:rgba(234,179,8,.3); background:rgba(234,179,8,.08); }
+        .wo-lastseen { font-size:9px; color:var(--dim); white-space:nowrap; }
+        .wo-lastseen.recent { color:var(--red); }
+        .wo-lastseen.aging { color:var(--yellow); }
+        .wo-right { text-align:right; flex-shrink:0; min-width:60px; }
+        .wo-total { font-family:"Barlow Condensed",sans-serif; font-size:22px; font-weight:700; color:var(--orange); line-height:1; }
+        .wo-total-lbl { font-size:9px; color:var(--dim); margin-top:1px; }
+        .wo-timeline { display:flex; align-items:flex-end; gap:2px; height:24px; margin-top:6px; }
+        .wo-dot { flex:1; border-radius:2px 2px 0 0; min-height:2px; transition:height .4s ease; }
+        .wo-dot.has-5xx { background:var(--red); opacity:.85; }
+        .wo-dot.has-4xx { background:var(--yellow); opacity:.75; }
+        .wo-dot.has-mix { background:linear-gradient(180deg,var(--red),var(--yellow)); opacity:.85; }
+        .wo-dot.empty { background:var(--dim); opacity:.25; height:2px !important; }
+        .wo-tl-labels { display:flex; gap:2px; margin-top:2px; }
+        .wo-tl-lbl { flex:1; font-size:7px; color:var(--dim); text-align:center; overflow:hidden; text-overflow:clip; white-space:nowrap; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+    <div class="brand">
+        <div class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+        </div>
+        <div>
+            <h1>LOOKNET<span>.CA</span></h1>
+            <p>Cloudflare Tunnel Monitor</p>
+        </div>
+    </div>
+    <div class="hdr-right">
+        <div class="mode-toggle">
+            <div class="mtab active-overview" id="mtab-overview" onclick="setMode('overview')">⊞ Overview</div>
+            <div class="mtab" id="mtab-live" onclick="setMode('live')">⬤ Live</div>
+        </div>
+        <div class="live-pill"><div class="live-dot" id="live-dot-hdr"></div><span id="live-mode-label">LIVE</span></div>
+        <span id="last-updated">—</span>
+        <button class="rbtn" onclick="fetchData()" id="rbtn">↻ Refresh</button>
+    </div>
+</header>
+
+<!-- OVERVIEW MODE -->
+<div id="overview-view">
+
+<!-- SUMMARY STRIP -->
+<div class="strip">
+    <div class="sc"><div class="sl">Tunnel Health</div><div class="sv" id="s-health">—</div><div class="ss" id="s-health-sub">—</div></div>
+    <div class="sc"><div class="sl">HA Connections</div><div class="sv accent" id="s-ha">—</div><div class="ss" id="s-ha-sub">per node</div></div>
+    <div class="sc"><div class="sl">Total Requests</div><div class="sv" id="s-reqs">—</div><div class="ss" id="s-reqs-sub">both nodes</div><div id="spark-reqs" class="spark" style="color:var(--text)"></div></div>
+    <div class="sc"><div class="sl">Active Streams</div><div class="sv cyan" id="s-streams">—</div><div class="ss">concurrent</div><div id="spark-streams" class="spark" style="color:var(--cyan)"></div></div>
+    <div class="sc"><div class="sl">CF Routing</div><div class="sv" id="s-routing">—</div><div class="ss" id="s-routing-sub">—</div></div>
+    <div class="sc"><div class="sl">Success Rate</div><div class="sv" id="s-sr">—</div><div class="ss">2xx / total</div></div>
+    <div class="sc"><div class="sl">Proxy Errors</div><div class="sv" id="s-errs">—</div><div class="ss" id="s-errs-sub">origin failures</div><div id="spark-errs" class="spark" style="color:var(--red)"></div></div>
+    <div class="sc"><div class="sl">Live Traffic</div><div class="sv" id="s-traffic">—</div><div class="ss" id="s-traffic-sub">gathering data…</div></div>
+</div>
+
+<div id="drift-alert"></div>
+
+<!-- MASONRY 2-COLUMN LAYOUT -->
+<div class="b-grid">
+    <!-- LEFT COLUMN (WIDER, DEEP DIVES) -->
+    <div class="col">
+        <div class="panel">
+            <div class="ph"><span class="pt">Tunnel Detail</span><span class="badge muted" id="t-badge">—</span></div>
+            <div id="t-body"><div class="no-data">Fetching…</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="ph"><span class="pt">Per-Node Deep Dive</span><span class="badge purple">Prometheus</span></div>
+            <div class="ntabs" id="ntabs"></div>
+            <div id="ntcs"></div>
+        </div>
+
+        <div class="panel">
+            <div class="ph"><span class="pt">QUIC Connection Details</span><span class="badge cyan" id="quic-badge">4 conns / node</span></div>
+            <div id="quic-body"><div class="no-data">—</div></div>
+        </div>
+    </div>
+
+    <!-- RIGHT COLUMN (NARROWER, SUMMARIES & LISTS) -->
+    <div class="col">
+        <div class="panel">
+            <div class="ph"><span class="pt">CF Load Distribution</span><span class="badge" id="lb-badge">—</span></div>
+            <div class="pb" id="lb-body"><div class="no-data">—</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="ph"><span class="pt">Avg RTT to Edge</span><span class="badge cyan">QUIC · ms</span></div>
+            <div class="pb" id="rtt-body"><div class="no-data">—</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="ph"><span class="pt">Response Codes</span><span class="badge" id="sr-badge">—</span></div>
+            <div id="rc-body"><div class="no-data">—</div></div>
+        </div>
+        
+        <!-- NEW EDGE ERROR ANALYTICS PANEL -->
+        <div class="panel">
+            <div class="ph"><span class="pt">Recent Edge Errors</span><span class="badge red">Past Hour</span></div>
+            <div id="err-body"><div class="no-data">—</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="ph"><span class="pt">RPC Operations</span><span class="badge muted">cloudflared</span></div>
+            <div class="pb" id="rpc-body"><div class="no-data">—</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="ph"><span class="pt">Event Timeline</span><span class="badge muted">Connection Events</span></div>
+            <div class="pb"><div class="tl" id="tl"></div></div>
+        </div>
+    </div>
+</div>
+</div><!-- /overview-view -->
+
+<!-- LIVE MODE -->
+<div id="live-view">
+    <!-- Poll progress bar -->
+    <div class="poll-bar-wrap"><div class="poll-bar" id="poll-bar" style="width:100%"></div></div>
+
+    <!-- Active Streams Ticker -->
+    <div class="stream-ticker">
+        <div class="st-label">Active<br>Streams</div>
+        <div class="st-streams" id="lv-stream-nodes"></div>
+        <div class="st-total" id="lv-stream-total">—<small>streams</small></div>
+    </div>
+
+    <!-- Hero big numbers -->
+    <div class="live-hero">
+        <div class="lhc" id="lv-rps-card">
+            <div class="lhc-label"><div class="lhc-label-dot" style="color:var(--text)"></div>Requests / min</div>
+            <div class="lhc-val" id="lv-rps">—</div>
+            <div class="lhc-sub"><span id="lv-rps-delta" class="lhc-delta flat">—</span><span id="lv-rps-sub" style="color:var(--dim);font-size:10px;margin-left:4px;"></span></div>
+        </div>
+        <div class="lhc pulse-red" id="lv-err-card">
+            <div class="lhc-label"><div class="lhc-label-dot" style="color:var(--red)"></div>Errors / min</div>
+            <div class="lhc-val red" id="lv-err">—</div>
+            <div class="lhc-sub"><span id="lv-err-delta" class="lhc-delta flat">—</span><span style="color:var(--dim);font-size:10px;margin-left:4px;">5xx + 4xx</span></div>
+        </div>
+        <div class="lhc pulse-cyan" id="lv-bw-card">
+            <div class="lhc-label"><div class="lhc-label-dot" style="color:var(--cyan)"></div>Live Bandwidth</div>
+            <div class="lhc-val cyan" id="lv-bw">—<span class="lhc-unit">Mbps</span></div>
+            <div class="lhc-sub" id="lv-bw-sub">—</div>
+        </div>
+        <div class="lhc pulse-green" id="lv-sr-card">
+            <div class="lhc-label"><div class="lhc-label-dot" style="color:var(--green)"></div>Success Rate</div>
+            <div class="lhc-val green" id="lv-sr">—</div>
+            <div class="lhc-sub"><span id="lv-sr-delta" class="lhc-delta flat">—</span><span id="lv-sr-sub-label" style="color:var(--dim);font-size:9px;margin-left:4px;">awaiting data</span></div>
+        </div>
+    </div>
+
+    <!-- Middle row: Node vitals + BW meter + Error feed -->
+    <div class="live-mid">
+        <!-- Node vitals -->
+        <div id="lv-nodes-col" style="display:flex;flex-direction:column;gap:12px;"></div>
+
+        <!-- BW meter with sparklines -->
+        <div class="bw-card">
+            <div class="bw-title">↓ / ↑ Bandwidth · Live</div>
+            <div class="bw-lane">
+                <div class="bw-lane-head">
+                    <span class="bw-lane-lbl">↓ Download</span>
+                    <span class="bw-lane-val cyan" id="lv-rx-val">—</span>
+                </div>
+                <div class="bw-track"><div class="bw-fill-rx" id="lv-rx-bar" style="width:0%"></div></div>
+                <div class="bw-sparkline" id="lv-rx-spark"></div>
+            </div>
+            <div class="bw-lane">
+                <div class="bw-lane-head">
+                    <span class="bw-lane-lbl">↑ Upload</span>
+                    <span class="bw-lane-val orange" id="lv-tx-val">—</span>
+                </div>
+                <div class="bw-track"><div class="bw-fill-tx" id="lv-tx-bar" style="width:0%"></div></div>
+                <div class="bw-sparkline" id="lv-tx-spark"></div>
+            </div>
+            <div class="bw-lane" style="margin-top:8px;">
+                <div class="bw-lane-head">
+                    <span class="bw-lane-lbl">Proxy Errors</span>
+                    <span class="bw-lane-val" style="color:var(--red)" id="lv-perr-val">—</span>
+                </div>
+                <div class="bw-track"><div class="bw-fill-err" id="lv-perr-bar" style="width:0%"></div></div>
+                <div class="bw-sparkline" id="lv-perr-spark"></div>
+            </div>
+        </div>
+
+        <!-- Live error feed -->
+        <div class="err-feed">
+            <div class="err-feed-head">
+                <span class="err-feed-title">Recent Edge Errors</span>
+                <span class="badge red" id="lv-err-badge">past hour</span>
+            </div>
+            <div class="err-feed-body" id="lv-err-feed"></div>
+        </div>
+    </div>
+
+
+    <!-- Webhook Offender Timeline -->
+    <div class="wo-card">
+        <div class="wo-head">
+            <span class="wo-title">Webhook Offenders · Past Hour</span>
+            <span class="badge red" id="lv-wo-badge">—</span>
+        </div>
+        <div id="lv-wo-body"><div class="no-data" style="padding:16px;">No error data</div></div>
+    </div>
+    <!-- Bottom: QUIC mini grid -->
+    <div class="qm-card" style="margin-bottom:20px;">
+        <div class="qm-head">
+            <span class="qm-title">QUIC Connections · Real-time</span>
+            <span class="badge cyan" id="lv-quic-badge">—</span>
+        </div>
+        <div class="qm-body" id="lv-quic-grid"></div>
+    </div>
+</div><!-- /live-view -->
+
+<footer>
+    <span>LOOKNET TUNNEL MONITOR // <span id="fid">—</span></span>
+    <span id="fts">—</span>
+</footer>
+</div>
+
+<script>
+const WEBHOOK = 'https://api-ain.looknet.ca/webhook/cloudflare-tunnel-status';
+
+const NODE_NAMES = {
+    '192.168.30.31': 'PVE1',
+    '192.168.30.32': 'PVE2',
+};
+const nodeName = ip => NODE_NAMES[ip] || ip;
+
+// ── MODE STATE ────────────────────────────────────────────
+let currentMode = 'overview';
+let overviewTimer = null;
+let liveTimer = null;
+let pollBarTimer = null;
+const LIVE_INTERVAL = 10000; // 10s in live mode
+const OVERVIEW_INTERVAL = 60000;
+
+// Live mode rolling history (for sparklines)
+const liveHistory = { rx: [], tx: [], perr: [], reqs: [], errs: [] };
+const SPARK_MAX = 20;
+let lastLiveData = null;
+
+function setMode(mode) {
+    currentMode = mode;
+    document.body.classList.toggle('live-mode', mode === 'live');
+
+    const tabOv = document.getElementById('mtab-overview');
+    const tabLv = document.getElementById('mtab-live');
+    const dot = document.getElementById('live-dot-hdr');
+    const label = document.getElementById('live-mode-label');
+
+    tabOv.className = 'mtab' + (mode === 'overview' ? ' active-overview' : '');
+    tabLv.className = 'mtab' + (mode === 'live' ? ' active-live' : '');
+
+    if (mode === 'live') {
+        dot.style.background = 'var(--green)';
+        dot.style.boxShadow = '0 0 7px var(--green)';
+        label.textContent = 'LIVE · 10s';
+        // Clear overview timer, start live timer
+        if (overviewTimer) clearInterval(overviewTimer);
+        fetchData();
+        liveTimer = setInterval(fetchData, LIVE_INTERVAL);
+        startPollBar(LIVE_INTERVAL);
+    } else {
+        dot.style.background = 'var(--green)';
+        dot.style.boxShadow = '0 0 7px var(--green)';
+        label.textContent = 'LIVE';
+        if (liveTimer) clearInterval(liveTimer);
+        if (pollBarTimer) clearInterval(pollBarTimer);
+        document.getElementById('poll-bar').style.transition = 'none';
+        document.getElementById('poll-bar').style.width = '100%';
+        overviewTimer = setInterval(fetchData, OVERVIEW_INTERVAL);
+    }
+}
+
+function startPollBar(interval) {
+    if (pollBarTimer) clearInterval(pollBarTimer);
+    const bar = document.getElementById('poll-bar');
+    const startTime = Date.now();
+    bar.style.transition = 'none';
+    bar.style.width = '100%';
+    requestAnimationFrame(() => {
+        bar.style.transition = `width ${interval}ms linear`;
+        bar.style.width = '0%';
+    });
+    pollBarTimer = setInterval(() => {
+        bar.style.transition = 'none';
+        bar.style.width = '100%';
+        requestAnimationFrame(() => {
+            bar.style.transition = `width ${interval}ms linear`;
+            bar.style.width = '0%';
+        });
+    }, interval);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    fetchData();
+    overviewTimer = setInterval(fetchData, OVERVIEW_INTERVAL);
+});
+
+async function fetchData() {
+    const btn = document.getElementById('rbtn');
+    btn.classList.add('spin'); btn.textContent = '↻ Fetching…';
+    try {
+        const res = await fetch(WEBHOOK);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const raw = await res.json();
+        const data = Array.isArray(raw) ? raw[0] : raw;
+        render(data);
+        if (currentMode === 'live') renderLiveMode(data);
+        document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch(e) {
+        document.getElementById('t-body').innerHTML = `<div class="no-data" style="color:var(--red)">⚠ ${e.message}</div>`;
+    } finally {
+        btn.classList.remove('spin'); btn.textContent = '↻ Refresh';
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// MAIN RENDER FUNCTION
+// ─────────────────────────────────────────────────────────────
+function render(data) {
+    const sum = data.summary || {};
+    const tunnels = data.tunnels || [];
+    const nodes = data.nodes || [];
+    const lb = data.load_balance || null;
+    const history = data.history || [];
+    const errs = data.error_analytics || [];
+
+    renderStrip(sum, nodes, lb, data.fetched_at, history);
+    checkDrift(nodes);
+    renderTunnels(tunnels);
+    renderLB(lb, nodes);
+    renderRTT(nodes);
+    renderNodeTabs(nodes);
+    renderQuic(nodes);
+    renderRespCodes(nodes);
+    renderErrorAnalytics(errs); 
+    renderRPC(nodes);
+    renderTimeline(tunnels);
+
+    const tid = tunnels[0]?.tunnel_id || '';
+    document.getElementById('fid').textContent = tid.slice(0,8) || '—';
+}
+
+// ── STRIP ──────────────────────────────────────────────────
+function renderStrip(sum, nodes, lb, fetchedAt, history) {
+    const ok = sum.healthy === sum.total_tunnels && sum.total_tunnels > 0;
+    setV('s-health', sum.healthy + '/' + (sum.total_tunnels||'?'), ok?'ok':'bad');
+    setS('s-health-sub', ok ? 'All healthy' : 'Issues detected');
+
+    const haArr = nodes.map(n => n.ha_connections).filter(v => v != null);
+    const haAvg = haArr.length ? Math.round(haArr.reduce((a,b)=>a+b,0)/haArr.length) : null;
+    setV('s-ha', haAvg != null ? haAvg : '—', haAvg===4?'ok':haAvg>0?'warn':'');
+    setS('s-ha-sub', haArr.length ? nodes.map((n,i)=>`${nodeName(n.node_ip)}: ${haArr[i]??'—'}`).join(' / ') : 'per node');
+
+    // --- 1-HOUR ROLLING DELTAS FOR PROMETHEUS COUNTERS ---
+    let rollingReqs = sum.total_requests || 0;
+    let rollingErrs = sum.total_proxy_errors || nodes.reduce((s,n)=>s+(n.request_errors||0),0);
+    
+    const reqRates = [];
+    const errRates = [];
+    const streamRates = [];
+
+    if (history && history.length > 1) {
+        const old = history[0];
+        const cur = history[history.length - 1];
+        
+        // Calculate 1-hour delta (safeguarded against node restarts dropping cumulative values)
+        rollingReqs = cur.requests >= old.requests ? cur.requests - old.requests : cur.requests;
+        rollingErrs = cur.errors >= old.errors ? cur.errors - old.errors : cur.errors;
+        
+        // Calculate per-minute deltas for Sparklines
+        for (let i = 1; i < history.length; i++) {
+            const p = history[i-1], c = history[i];
+            reqRates.push(Math.max(0, c.requests - p.requests));
+            errRates.push(Math.max(0, c.errors - p.errors));
+            streamRates.push(c.streams || 0);
+        }
+    } else if (history && history.length === 1) {
+        reqRates.push(0); errRates.push(0); streamRates.push(history[0].streams || 0);
+    }
+
+    setV('s-reqs', fmtN(rollingReqs));
+    setS('s-reqs-sub', 'past hour'); // Updated label!
+
+    const streams = sum.total_active_streams || 0;
+    setV('s-streams', streams, 'cyan');
+
+    if (lb) {
+        const delta = Math.abs(lb.node1_pct - lb.node2_pct);
+        const perf = delta > 30;
+        setV('s-routing', perf ? 'PERF-BASED' : delta<=20 ? 'BALANCED' : 'SKEWED', perf?'accent':delta<=20?'ok':'warn');
+        setS('s-routing-sub', perf ? 'CF routing by latency' : `${lb.node1_pct}% / ${lb.node2_pct}%`);
+    }
+
+    const agg = {}; nodes.forEach(n=>Object.entries(n.response_codes||{}).forEach(([k,v])=>agg[k]=(agg[k]||0)+v));
+    const tot = Object.values(agg).reduce((s,v)=>s+v,0);
+    const ok2 = Object.entries(agg).filter(([k])=>k.startsWith('2') || k.startsWith('3')).reduce((s,[,v])=>s+v,0);
+    const srRaw = tot > 0 ? (ok2/tot*100) : null;
+    const sr = srRaw != null ? parseFloat(srRaw.toFixed(2)) : null;
+    setV('s-sr', sr!=null?sr+'%':'—', sr>=99?'ok':sr>=90?'warn':'bad');
+
+    setV('s-errs', fmtN(rollingErrs), rollingErrs===0?'ok':rollingErrs<50?'warn':'bad');
+    setS('s-errs-sub', 'past hour'); // Updated label!
+
+    // Render Rate Sparklines (Shows changes per minute, much more useful!)
+    if (reqRates.length > 0) {
+        const rMax = Math.max(...reqRates) || 1;
+        const sMax = Math.max(...streamRates) || 1;
+        const eMax = Math.max(...errRates) || 1;
+        
+        document.getElementById('spark-reqs').innerHTML = reqRates.map(v => 
+            `<div class="spark-bar" style="height:${Math.max(5, (v/rMax)*100)}%" title="${v} reqs/min"></div>`
+        ).join('');
+        
+        document.getElementById('spark-streams').innerHTML = streamRates.map(v => 
+            `<div class="spark-bar" style="height:${Math.max(5, (v/sMax)*100)}%" title="${v} streams"></div>`
+        ).join('');
+
+        document.getElementById('spark-errs').innerHTML = errRates.map(v => 
+            `<div class="spark-bar" style="height:${Math.max(5, (v/eMax)*100)}%" title="${v} errs/min"></div>`
+        ).join('');
+    }
+
+    // Live Bandwidth Calculation (comparing newest to previous)
+    if (history && history.length >= 2) {
+        const hNew = history[history.length - 1]; // Newest
+        const hOld = history[history.length - 2]; // Previous
+        const dt = (new Date(hNew.time) - new Date(hOld.time)) / 1000;
+        
+        if (dt > 0) {
+            const dRx = Math.max(0, (hNew.rx || 0) - (hOld.rx || 0));
+            const dTx = Math.max(0, (hNew.tx || 0) - (hOld.tx || 0));
+            
+            const mbpsRx = (dRx * 8) / 1000000 / dt;
+            const mbpsTx = (dTx * 8) / 1000000 / dt;
+            const totalMbps = mbpsRx + mbpsTx;
+            
+            setV('s-traffic', totalMbps > 0.1 ? totalMbps.toFixed(1) : '0.0');
+            setS('s-traffic-sub', `↓ ${mbpsRx.toFixed(1)} Mbps · ↑ ${mbpsTx.toFixed(1)} Mbps`);
+        }
+    }
+
+    if (fetchedAt) {
+        const age = Math.round((Date.now()-new Date(fetchedAt))/1000);
+        document.getElementById('fts').innerHTML = `REDIS CACHE: ${age}s AGO <span style="margin:0 12px;opacity:0.3">|</span> ` + new Date(fetchedAt).toISOString();
+    }
+}
+
+// ── VERSION DRIFT CHECK ────────────────────────────────────
+function checkDrift(nodes) {
+    const el = document.getElementById('drift-alert');
+    if (nodes.length >= 2) {
+        const v1 = nodes[0].cloudflared_version?.version;
+        const v2 = nodes[1].cloudflared_version?.version;
+        
+        if (v1 && v2 && v1 !== v2) {
+            el.innerHTML = `<div class="drift-banner">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <div><strong>Version Drift Detected:</strong> ${nodeName(nodes[0].node_ip)} is running <strong>v${v1}</strong>, but ${nodeName(nodes[1].node_ip)} is running <strong>v${v2}</strong>. Cloudflare may be performing a rolling upgrade, or a package manager update is pending.</div>
+            </div>`;
+            return;
+        }
+    }
+    el.innerHTML = ''; 
+}
+
+// ── TUNNELS ────────────────────────────────────────────────
+function renderTunnels(tunnels) {
+    const el = document.getElementById('t-body');
+    document.getElementById('t-badge').textContent = tunnels.length + ' tunnel' + (tunnels.length!==1?'s':'');
+    if (!tunnels.length) { el.innerHTML='<div class="no-data">No tunnels</div>'; return; }
+
+    el.innerHTML = tunnels.map(t => {
+        const cls = t.status==='healthy'?'healthy':t.status==='degraded'?'degraded':'inactive';
+        const conns = t.connectors||[];
+        const connHtml = conns.map((c,i) => {
+            const m = c.metrics||{};
+            const srCls = m.success_rate>=99?'green':m.success_rate>=90?'':'red';
+            const rcHtml = Object.entries(m.response_codes||{}).filter(([,v])=>v>0)
+                .sort(([a],[b])=>+a-(+b))
+                .map(([code,cnt])=>{
+                    const cls = code.startsWith('2')?'c2':code.startsWith('3')?'c3':code.startsWith('4')?'c4':'c5';
+                    return `<span class="rc ${cls}">${code}: ${fmtN(cnt)}</span>`;
+                }).join('');
+            return `<div class="cc">
+                <div class="ch">
+                    <div style="display:flex;align-items:center;gap:10px;"><span class="cnum">#${i+1}</span><span class="cid">${c.id?c.id.slice(0,8)+'…':'conn-'+i}</span></div>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        ${m.node_ip?`<span style="font-size:10px;color:var(--dim);">${nodeName(m.node_ip)}</span>`:''}
+                        ${c.is_pending_reconnect?`<span class="badge orange">Reconnecting</span>`:''}
+                    </div>
+                </div>
+                <div class="cbody">
+                    <div class="cstats">
+                        <div><div class="csl">Requests</div><div class="csv">${m.total_requests!=null?fmtN(m.total_requests):'—'}</div></div>
+                        <div><div class="csl">Streams</div><div class="csv cyan">${m.active_streams??'—'}</div></div>
+                        <div><div class="csl">Success</div><div class="csv ${srCls}">${m.success_rate!=null?m.success_rate+'%':'—'}</div></div>
+                    </div>
+                    ${m.load_pct!=null?`<div class="bw"><div class="bt"><div class="bf" style="width:${m.load_pct}%;background:linear-gradient(90deg,var(--orange),#fbbf24)"></div></div><div class="bl">CF traffic share: ${m.load_pct}%</div></div>`:''}
+                    ${rcHtml?`<div class="rcs">${rcHtml}</div>`:''}
+                </div>
+                <div class="cfoot">
+                    ${c.arch?`<span>${c.arch}</span>`:''}
+                    ${c.client_version?`<span>v${c.client_version}</span>`:''}
+                    <span>Opened ${relTime(c.opened_at)}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<div style="padding:16px;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;">
+                <div>
+                    <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:#fff;">${t.tunnel_name||'Unnamed'}</div>
+                    <div style="font-size:9px;color:var(--dim);margin-top:3px;">ID: ${t.tunnel_id||'—'}</div>
+                </div>
+                <div class="spill ${cls}"><div class="sdot"></div>${t.status||'unknown'}</div>
+            </div>
+            <div class="mg">
+                <div class="mc"><div class="ml">Connectors</div><div class="mv big orange">${t.connector_count??conns.length}</div></div>
+                <div class="mc"><div class="ml">Active Since</div><div class="mv">${relTime(t.conns_active_at)}</div></div>
+                <div class="mc"><div class="ml">Created</div><div class="mv">${relTime(t.created_at)}</div></div>
+                <div class="mc"><div class="ml">Last Inactive</div><div class="mv">${t.conns_inactive_at?relTime(t.conns_inactive_at):'Never'}</div></div>
+            </div>
+            ${connHtml}
+        </div>`;
+    }).join('<div style="height:1px;background:var(--border);margin:0 16px;"></div>');
+}
+
+// ── LOAD BALANCE ──────────────────────────────────────────
+function renderLB(lb, nodes) {
+    const el = document.getElementById('lb-body');
+    const badge = document.getElementById('lb-badge');
+    if (!lb) { el.innerHTML='<div class="no-data">—</div>'; return; }
+    const delta = Math.abs(lb.node1_pct - lb.node2_pct);
+    const perf = delta > 30;
+    badge.textContent = perf ? 'Perf-Routed' : delta<=20 ? 'Balanced' : 'Skewed';
+    badge.className = 'badge ' + (perf?'cyan':delta<=20?'green':'orange');
+
+    const rttHint = (n) => { const a = avgRtt(n); return a ? ` · ~${a}ms RTT` : ''; };
+
+    el.innerHTML = `
+        <div class="lbrow">
+            <div class="lblabel">${nodeName(lb.node1_ip)}<span>${lb.node1_ip}${rttHint(nodes[0])}</span></div>
+            <div class="lbtrack"><div class="lbfill n1" style="width:${lb.node1_pct}%"></div></div>
+            <div class="lbpct n1">${lb.node1_pct}%</div>
+        </div>
+        <div class="lbrow">
+            <div class="lblabel">${nodeName(lb.node2_ip)}<span>${lb.node2_ip}${rttHint(nodes[1])}</span></div>
+            <div class="lbtrack"><div class="lbfill n2" style="width:${lb.node2_pct}%"></div></div>
+            <div class="lbpct n2">${lb.node2_pct}%</div>
+        </div>
+        <div class="lbnote ${perf?'info':delta<=20?'ok':'warn'}">
+            ${perf
+                ? `↗ Cloudflare is routing by performance. ${nodeName(lb.node2_ip)} (slower node) handles less traffic — this is expected and healthy.`
+                : delta<=20 ? '✓ Traffic is evenly distributed.' : `⚠ Skew of ${delta}% — investigate if unexpected.`}
+        </div>`;
+}
+
+// ── RTT SUMMARY ────────────────────────────────────────────
+function renderRTT(nodes) {
+    const el = document.getElementById('rtt-body');
+    const hasQuic = nodes.some(n=>(n.quic_connections||[]).length>0);
+    if (!hasQuic) { el.innerHTML='<div class="no-data">No QUIC data available</div>'; return; }
+    const colors = ['var(--orange)','var(--cyan)'];
+    el.innerHTML = nodes.map((n,ni) => {
+        const conns = n.quic_connections||[];
+        if (!conns.length) return '';
+        const avg = Math.round(conns.reduce((s,c)=>s+(c.smoothed_rtt||0),0)/conns.length);
+        const mn = Math.min(...conns.map(c=>c.min_rtt||99));
+        const mx = Math.max(...conns.map(c=>c.latest_rtt||0));
+        return `<div style="margin-bottom:${ni<nodes.length-1?'14px':'0'};padding-bottom:${ni<nodes.length-1?'14px':'0'};border-bottom:${ni<nodes.length-1?'1px solid var(--border)':'none'};">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+                <span style="font-size:11px;color:${colors[ni]};">${nodeName(n.node_ip)} <span style="font-size:9px;color:var(--dim);">${n.node_ip}</span></span>
+                <span style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:700;">${avg}<span style="font-size:12px;color:var(--muted);margin-left:2px;">ms</span></span>
+            </div>
+            <div style="display:flex;gap:16px;font-size:10px;color:var(--muted);">
+                <span>min <span style="color:var(--green);">${mn}ms</span></span>
+                <span>max <span style="color:var(--yellow);">${mx}ms</span></span>
+                <span>${conns.length} QUIC conns</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ── NODE TABS ──────────────────────────────────────────────
+function renderNodeTabs(nodes) {
+    document.getElementById('ntabs').innerHTML = nodes.map((n,i)=>
+        `<div class="ntab ${i===0?'active':''}" onclick="switchTab(${i})" id="tab-${i}">${nodeName(n.node_ip)} <span style="font-size:9px;opacity:.5;">${n.node_ip}</span></div>`
+    ).join('');
+    document.getElementById('ntcs').innerHTML = nodes.map((n,i)=>
+        `<div class="ntc ${i===0?'active':''}" id="tc-${i}">${nodeContent(n)}</div>`
+    ).join('');
+}
+function switchTab(i) {
+    document.querySelectorAll('.ntab').forEach((t,j)=>t.classList.toggle('active',i===j));
+    document.querySelectorAll('.ntc').forEach((c,j)=>c.classList.toggle('active',i===j));
+}
+
+function nodeContent(n) {
+    const uptime = n.process_start_time ? Math.round((Date.now()/1000-n.process_start_time)/3600) : null;
+    const memMB = n.resident_memory_bytes ? (n.resident_memory_bytes/1024/1024).toFixed(1) : null;
+    const heapMB = n.heap_alloc_bytes ? (n.heap_alloc_bytes/1024/1024).toFixed(1) : null;
+    const rxGB = n.network_rx_bytes ? (n.network_rx_bytes/1e9).toFixed(2) : null;
+    const txGB = n.network_tx_bytes ? (n.network_tx_bytes/1e9).toFixed(2) : null;
+    const maxIO = Math.max(parseFloat(rxGB)||0, parseFloat(txGB)||0);
+    const v = n.cloudflared_version || {};
+
+    return `
+    ${v.version ? `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:#fff;">${nodeName(n.node_ip)}</span>
+        <span style="font-size:10px;color:var(--dim);">${n.node_ip}</span>
+        <span class="build-pill">cloudflared ${v.version}</span>
+        <span style="font-size:10px;color:var(--dim);">${v.goversion||''} · ${v.revision||''}</span>
+    </div>` : `<div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:#fff;margin-bottom:16px;">${nodeName(n.node_ip)} <span style="font-size:11px;color:var(--dim);font-weight:400;">${n.node_ip}</span></div>`}
+
+    <div class="sect">Process</div>
+    <div class="pg">
+        <div class="pc"><div class="pcl">Uptime</div><div class="pcv ok">${uptime!=null?uptime+'h':'—'}</div><div class="pcs">${n.process_start_time?new Date(n.process_start_time*1000).toLocaleDateString():''}</div></div>
+        <div class="pc"><div class="pcl">RSS Memory</div><div class="pcv ${memMB>200?'warn':'ok'}">${memMB!=null?memMB+'MB':'—'}</div><div class="pcs">Heap: ${heapMB!=null?heapMB+'MB':'—'}</div></div>
+        <div class="pc"><div class="pcl">CPU Time</div><div class="pcv cyan">${n.cpu_seconds_total!=null?fmtN(Math.round(n.cpu_seconds_total))+'s':'—'}</div><div class="pcs">user+sys total</div></div>
+        <div class="pc"><div class="pcl">Goroutines</div><div class="pcv ${n.goroutines>200?'warn':''}">${n.goroutines??'—'}</div><div class="pcs">Threads: ${n.threads??'—'}</div></div>
+        <div class="pc"><div class="pcl">GC Cycles</div><div class="pcv">${n.gc_count!=null?fmtN(n.gc_count):'—'}</div><div class="pcs">P50: ${n.gc_pause_ms!=null?n.gc_pause_ms.toFixed(2)+'ms':'—'}</div></div>
+        <div class="pc"><div class="pcl">Open FDs</div><div class="pcv ${n.open_fds>400?'warn':''}">${n.open_fds??'—'}</div><div class="pcs">max ${n.max_fds!=null?fmtN(n.max_fds):'?'}</div></div>
+    </div>
+
+    <div class="sect">Tunnel Runtime</div>
+    <div class="pg">
+        <div class="pc"><div class="pcl">HA Connections</div><div class="pcv ${n.ha_connections===4?'ok':n.ha_connections>0?'warn':'red'}">${n.ha_connections??'—'}</div><div class="pcs">target: 4</div></div>
+        <div class="pc"><div class="pcl">Concurrent Reqs</div><div class="pcv cyan">${n.concurrent_requests??'—'}</div><div class="pcs">per-tunnel gauge</div></div>
+        <div class="pc"><div class="pcl">Proxy Errors</div><div class="pcv ${(n.request_errors||0)>0?'red':'ok'}">${n.request_errors??'—'}</div><div class="pcs">origin conn fails</div></div>
+        <div class="pc"><div class="pcl">TCP Sessions</div><div class="pcv">${n.tcp_total_sessions!=null?fmtN(n.tcp_total_sessions):'—'}</div><div class="pcs">total proxied</div></div>
+        <div class="pc"><div class="pcl">Reg. Success</div><div class="pcv ok">${n.register_success??'—'}</div><div class="pcs">registerConnection</div></div>
+        <div class="pc"><div class="pcl">Config Pushes</div><div class="pcv">${n.config_pushes??'—'}</div><div class="pcs">Errors: ${n.config_push_errors??0}</div></div>
+    </div>
+
+    ${rxGB||txGB?`
+    <div class="sect">Network I/O (cumulative since process start)</div>
+    <div class="nio"><span style="font-size:12px;width:18px;text-align:center;">↓</span><div class="nio-lbl">Received</div><div class="nio-bar"><div class="nio-rx" style="width:${maxIO>0?Math.round((parseFloat(rxGB)/maxIO)*100):50}%"></div></div><div class="nio-val rx">${rxGB} GB</div></div>
+    <div class="nio"><span style="font-size:12px;width:18px;text-align:center;">↑</span><div class="nio-lbl">Sent</div><div class="nio-bar"><div class="nio-tx" style="width:${maxIO>0?Math.round((parseFloat(txGB)/maxIO)*100):50}%"></div></div><div class="nio-val tx">${txGB} GB</div></div>
+    `:''}
+
+    ${n.server_locations&&n.server_locations.length?`
+    <div class="sect" style="margin-top:14px;">Edge PoP Locations</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${n.server_locations.map(loc=>`<div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 12px;"><span class="eloc">${loc.edge_location}</span><div style="font-size:9px;color:var(--dim);margin-top:4px;">conn #${loc.connection_id}</div></div>`).join('')}
+    </div>`:''}`;
+}
+
+// ── QUIC ──────────────────────────────────────────────────
+function renderQuic(nodes) {
+    const el = document.getElementById('quic-body');
+    const all = [];
+    nodes.forEach((n,ni)=>(n.quic_connections||[]).forEach(c=>all.push({...c,node_ip:n.node_ip,ni})));
+    if (!all.length) { el.innerHTML='<div class="no-data">No QUIC data available</div>'; return; }
+
+    document.getElementById('quic-badge').textContent = all.length + ' total QUIC connections';
+    const maxCw = Math.max(...all.map(c=>c.congestion_window||0));
+    const maxRtt = Math.max(...all.map(c=>c.latest_rtt||0));
+    const colors = ['var(--orange)','var(--cyan)'];
+    const stateNames = {1:'Slow Start',2:'Congestion Avoid',3:'Steady State',4:'Application Limited'};
+
+    const rows = all.map(c=>{
+        const lost = (c.lost_packets||[]).reduce((s,l)=>s+(l.count||0),0);
+        const cwPct = maxCw>0?Math.round((c.congestion_window/maxCw)*100):0;
+        const rttPct = maxRtt>0?Math.round(((maxRtt-c.latest_rtt)/maxRtt)*100):50; // invert: lower=greener
+        const sentGB = c.sent_bytes?(c.sent_bytes/1e9).toFixed(2):'—';
+        const rxMB = c.receive_bytes?(c.receive_bytes/1e6).toFixed(1):'—';
+        return `<tr>
+            <td><span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:${colors[c.ni]||'var(--muted)'};">${nodeName(c.node_ip)}</span><div style="font-size:9px;color:var(--dim);">${c.node_ip} · conn #${c.conn_index}</div></td>
+            <td>${c.edge_location?`<span class="eloc">${c.edge_location}</span>`:'<span style="color:var(--dim);">—</span>'}</td>
+            <td>
+                <div class="qnum green">${c.latest_rtt!=null?c.latest_rtt:'-'}<span style="font-size:10px;font-weight:400;color:var(--muted);">ms</span></div>
+                <div class="rttbar"><div class="rttfill" style="width:${rttPct}%"></div></div>
+                <div style="font-size:9px;color:var(--dim);">min ${c.min_rtt??'-'}ms · smth ${c.smoothed_rtt??'-'}ms</div>
+            </td>
+            <td>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:3px;">${stateNames[c.congestion_state]||'State '+c.congestion_state||'—'}</div>
+                <div class="cwbar"><div class="cwfill" style="width:${cwPct}%"></div></div>
+                <div style="font-size:9px;color:var(--dim);">${fmtN(c.congestion_window||0)} B window</div>
+            </td>
+            <td><div class="qnum cyan">${sentGB}<span style="font-size:10px;font-weight:400;color:var(--muted);"> GB↑</span></div><div style="font-size:10px;color:var(--dim);">${rxMB} MB↓</div></td>
+            <td><div class="qnum ${lost>0?'red':'green'}">${lost}</div><div style="font-size:9px;color:var(--dim);">lost pkts</div></td>
+        </tr>`;
+    }).join('');
+
+    el.innerHTML = `<table class="qt"><thead><tr><th>Node</th><th>Edge PoP</th><th>RTT</th><th>Congestion State / Window</th><th>Data Xfer</th><th>Lost Pkts</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ── RESPONSE CODES ────────────────────────────────────────
+function renderRespCodes(nodes) {
+    const el = document.getElementById('rc-body');
+    const badge = document.getElementById('sr-badge');
+    const agg = {};
+    nodes.forEach(n=>Object.entries(n.response_codes||{}).forEach(([k,v])=>agg[k]=(agg[k]||0)+v));
+    const tot = Object.values(agg).reduce((s,v)=>s+v,0);
+    if (!tot) { el.innerHTML='<div class="no-data">No data</div>'; return; }
+    
+    // Accurate 2 decimal places logic
+    const ok2 = Object.entries(agg).filter(([k])=>k.startsWith('2') || k.startsWith('3')).reduce((s,[,v])=>s+v,0);
+    const srRaw = tot > 0 ? (ok2/tot*100) : 0;
+    const sr = parseFloat(srRaw.toFixed(2));
+    
+    badge.textContent = sr+'% success';
+    badge.className = 'badge '+(sr>=99?'green':sr>=90?'orange':'red');
+
+    const rows = Object.entries(agg).sort(([a],[b])=>+a-+b).map(([code,cnt])=>{
+        const pct = Math.round(cnt/tot*100);
+        const cls = code.startsWith('2')?'c2':code.startsWith('3')?'c3':code.startsWith('4')?'c4':'c5';
+        const fc = code.startsWith('2')?'var(--green)':code.startsWith('3')?'var(--cyan)':code.startsWith('4')?'var(--yellow)':'var(--red)';
+        return `<tr>
+            <td><span class="cdbadge rc ${cls}">${code}</span></td>
+            <td style="color:var(--muted);font-size:10px;">${codeDesc(code)}</td>
+            <td style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;">${fmtN(cnt)}</td>
+            <td><div class="ilb"><div class="ilf" style="width:${pct}%;background:${fc};height:4px;border-radius:2px;"></div></div></td>
+            <td style="color:var(--muted);font-size:10px;">${pct}%</td>
+        </tr>`;
+    }).join('');
+
+    el.innerHTML = `<table class="cdt"><thead><tr><th>Code</th><th>Meaning</th><th>Count</th><th>Distribution</th><th>%</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ── EDGE ERROR ANALYTICS (GRAPHQL) ────────────────────────
+function renderErrorAnalytics(errors) {
+    const el = document.getElementById('err-body');
+    if (!errors || !errors.length) { 
+        el.innerHTML = '<div class="no-data" style="color:var(--dim)">No recent 4xx/5xx edge errors found in the past hour.</div>'; 
+        return; 
+    }
+    
+    // Group by Client IP and track timestamps
+    const grouped = {};
+    errors.forEach(err => {
+        const dim = err.dimensions || {};
+        const ip = dim.clientIP || 'Unknown IP';
+        if (!grouped[ip]) grouped[ip] = { total: 0, items: [], latest: null };
+        grouped[ip].total += err.count;
+
+        const timeStr = dim.datetimeFiveMinutes;
+        const dateObj = timeStr ? new Date(timeStr) : null;
+        if (dateObj && (!grouped[ip].latest || dateObj > grouped[ip].latest)) {
+            grouped[ip].latest = dateObj;
+        }
+
+        const pathKey = `${dim.edgeResponseStatus}-${dim.clientRequestHTTPHost}-${dim.clientRequestPath}`;
+        let existingItem = grouped[ip].items.find(i => i.key === pathKey);
+        if (existingItem) {
+            existingItem.count += err.count;
+            if (dateObj && (!existingItem.latest || dateObj > existingItem.latest)) {
+                existingItem.latest = dateObj;
+            }
+        } else {
+            grouped[ip].items.push({
+                key: pathKey,
+                status: dim.edgeResponseStatus || 0,
+                host: dim.clientRequestHTTPHost || '',
+                path: dim.clientRequestPath || '',
+                count: err.count,
+                latest: dateObj
+            });
+        }
+    });
+
+    // Sort IPs by total errors descending
+    const sortedIps = Object.entries(grouped).sort((a, b) => b[1].total - a[1].total);
+    const fmtTime = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+
+    const rows = sortedIps.map(([ip, data]) => {
+        const itemHtml = data.items.map(item => {
+            const cls = item.status >= 500 ? 'c5' : 'c4';
+            const timeHtml = item.latest ? `<span style="font-size:9px; color:var(--muted); white-space:nowrap; flex-shrink:0;">Seen ${fmtTime(item.latest)}</span>` : '';
+            
+            return `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.03); gap:12px;">
+                <div style="flex:1; min-width:0;">
+                    <span class="rc ${cls}" style="font-size:9px; padding:1px 4px; margin-right:6px;">${item.status}</span>
+                    <span style="font-size:10px; color:var(--text); word-break:break-all;"><span style="color:var(--dim)">https://</span>${item.host}<span style="color:var(--cyan)">${item.path}</span></span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:flex-end; flex-shrink:0;">
+                    <div style="font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:700;">${item.count} <span style="font-size:9px; font-weight:400; color:var(--muted)">hits</span></div>
+                    ${timeHtml}
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<div style="padding:12px 18px; border-bottom:1px solid rgba(255,255,255,.03);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:11px; font-weight:600; color:var(--orange); font-family:'IBM Plex Mono',monospace;">${ip}</span>
+                <div style="text-align:right;">
+                    <div style="font-size:10px; color:var(--muted);">${data.total} errors</div>
+                    ${data.latest ? `<div style="font-size:9px; color:var(--dim); margin-top:2px;">Last hit: ${fmtTime(data.latest)}</div>` : ''}
+                </div>
+            </div>
+            ${itemHtml}
+        </div>`;
+    }).join('');
+    
+    el.innerHTML = rows;
+}
+
+// ── RPC ───────────────────────────────────────────────────
+function renderRPC(nodes) {
+    const el = document.getElementById('rpc-body');
+    const methods = {};
+    nodes.forEach(n=>(n.rpc_operations||[]).forEach(op=>{
+        if (!methods[op.method]) methods[op.method]={ops:0,failures:0,latSum:0,latN:0};
+        methods[op.method].ops += op.count||0;
+        methods[op.method].failures += op.failures||0;
+        if (op.latency_avg!=null) { methods[op.method].latSum+=op.latency_avg; methods[op.method].latN++; }
+    }));
+    if (!Object.keys(methods).length) { el.innerHTML='<div class="no-data">No RPC data available</div>'; return; }
+    el.innerHTML = Object.entries(methods).map(([m,d])=>{
+        const lat = d.latN>0 ? (d.latSum/d.latN*1000).toFixed(0) : null;
+        return `<div class="rpcrow">
+            <div class="rpcm">${m}</div>
+            <div class="rpcvals">
+                ${lat!=null?`<span style="font-size:10px;color:var(--cyan);">${lat}ms</span>`:''}
+                ${d.failures>0?`<span style="font-size:10px;color:var(--red);">${d.failures} fail</span>`:''}
+                <span class="rpcn">${d.ops}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ── TIMELINE ──────────────────────────────────────────────
+function renderTimeline(tunnels) {
+    const el = document.getElementById('tl');
+    const evs = [];
+    tunnels.forEach(t=>{
+        if(t.created_at) evs.push({time:t.created_at,label:`Tunnel "${t.tunnel_name}" created`,type:'blue'});
+        if(t.conns_active_at) evs.push({time:t.conns_active_at,label:`"${t.tunnel_name}" went active`,type:'green'});
+        if(t.conns_inactive_at) evs.push({time:t.conns_inactive_at,label:`"${t.tunnel_name}" went inactive`,type:'orange'});
+        (t.connectors||[]).forEach((c,i)=>{ if(c.opened_at) evs.push({time:c.opened_at,label:`Connector #${i+1} opened`,type:'green'}); });
+    });
+    if(!evs.length){el.innerHTML='<div class="no-data">—</div>';return;}
+    evs.sort((a,b)=>new Date(b.time)-new Date(a.time));
+    el.innerHTML = evs.slice(0,10).map((ev,i,arr)=>`
+        <div class="tli">
+            <div class="tldc"><div class="tld ${ev.type}"></div>${i<arr.length-1?'<div class="tll"></div>':''}</div>
+            <div><div class="tlev">${ev.label}</div><div class="tlt">${fmtDate(ev.time)} · ${relTime(ev.time)}</div></div>
+        </div>`).join('');
+}
+
+function setV(id,val,cls){const e=document.getElementById(id);if(!e)return;e.textContent=val;e.className='sv'+(cls?' '+cls:'');}
+function setS(id,val){const e=document.getElementById(id);if(e)e.textContent=val;}
+function fmtN(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return String(Math.round(n));}
+function fmtDate(iso){try{return new Date(iso).toLocaleString();}catch{return iso||'—';}}
+function relTime(iso){if(!iso)return'—';const d=Math.round((Date.now()-new Date(iso))/1000);if(d<60)return d+'s ago';if(d<3600)return Math.round(d/60)+'m ago';if(d<86400)return Math.round(d/3600)+'h ago';return Math.round(d/86400)+'d ago';}
+function avgRtt(node){const c=node?.quic_connections||[];if(!c.length)return null;return Math.round(c.reduce((s,x)=>s+(x.smoothed_rtt||0),0)/c.length);}
+function codeDesc(c){return{'200':'OK','201':'Created','204':'No Content','206':'Partial Content','301':'Moved Permanently','302':'Found','303':'See Other','304':'Not Modified','307':'Temp Redirect','400':'Bad Request','401':'Unauthorized','403':'Forbidden','404':'Not Found','406':'Not Acceptable','416':'Range Not Satisfiable','422':'Unprocessable Entity','429':'Too Many Requests','500':'Internal Server Error','502':'Bad Gateway','503':'Service Unavailable','504':'Gateway Timeout','521':'Web Server Down','522':'Conn Timed Out','523':'Origin Unreachable','524':'A Timeout Occurred','595':'CF Local Timeout','596':'CF Conn Refused'}[c]||'';}
+
+// ─────────────────────────────────────────────────────────────
+// LIVE MODE RENDER
+// ─────────────────────────────────────────────────────────────
+function renderLiveMode(data) {
+    const nodes = data.nodes || [];
+    const history = data.history || [];
+    const errs = data.error_analytics || [];
+    const sum = data.summary || {};
+
+    // ── Bandwidth from history ──
+    let mbpsRx = 0, mbpsTx = 0;
+    if (history.length >= 2) {
+        const hNew = history[history.length - 1];
+        const hOld = history[history.length - 2];
+        const dt = (new Date(hNew.time) - new Date(hOld.time)) / 1000;
+        if (dt > 0) {
+            mbpsRx = Math.max(0, ((hNew.rx || 0) - (hOld.rx || 0)) * 8 / 1000000 / dt);
+            mbpsTx = Math.max(0, ((hNew.tx || 0) - (hOld.tx || 0)) * 8 / 1000000 / dt);
+        }
+    }
+
+    // ── Req/err deltas ──
+    let reqPerMin = 0, errPerMin = 0;
+    if (history.length >= 2) {
+        const hNew = history[history.length - 1];
+        const hOld = history[history.length - 2];
+        const dt = Math.max(1, (new Date(hNew.time) - new Date(hOld.time)) / 1000);
+        reqPerMin = Math.max(0, Math.round(((hNew.requests || 0) - (hOld.requests || 0)) / dt * 60));
+        errPerMin = Math.max(0, Math.round(((hNew.errors || 0) - (hOld.errors || 0)) / dt * 60));
+    }
+
+    // ── Push to rolling history ──
+    const pushSpark = (arr, val) => { arr.push(val); if (arr.length > SPARK_MAX) arr.shift(); };
+    pushSpark(liveHistory.rx, mbpsRx);
+    pushSpark(liveHistory.tx, mbpsTx);
+    pushSpark(liveHistory.reqs, reqPerMin);
+    pushSpark(liveHistory.errs, errPerMin);
+    const totalPerr = nodes.reduce((s, n) => s + (n.request_errors || 0), 0);
+    const prevPerr = lastLiveData ? (lastLiveData.nodes || []).reduce((s, n) => s + (n.request_errors || 0), 0) : totalPerr;
+    pushSpark(liveHistory.perr, Math.max(0, totalPerr - prevPerr));
+    lastLiveData = data;
+
+    // ── Success rate (interval-delta from history response_codes if available, else cumulative fallback) ──
+    let sr = null;
+    let srIsInterval = false;
+    if (history.length >= 2) {
+        const hNew = history[history.length - 1];
+        const hOld = history[history.length - 2];
+        if (hNew.response_codes && hOld.response_codes) {
+            const allCodes = new Set([...Object.keys(hNew.response_codes), ...Object.keys(hOld.response_codes)]);
+            let itvTot = 0, itvOk = 0;
+            allCodes.forEach(k => {
+                const delta = Math.max(0, (hNew.response_codes[k] || 0) - (hOld.response_codes[k] || 0));
+                itvTot += delta;
+                if (k.startsWith('2') || k.startsWith('3')) itvOk += delta;
+            });
+            if (itvTot > 0) { sr = parseFloat((itvOk / itvTot * 100).toFixed(2)); srIsInterval = true; }
+        }
+    }
+    if (sr === null) {
+        const agg = {};
+        nodes.forEach(n => Object.entries(n.response_codes || {}).forEach(([k, v]) => agg[k] = (agg[k] || 0) + v));
+        const tot = Object.values(agg).reduce((s, v) => s + v, 0);
+        const ok2 = Object.entries(agg).filter(([k]) => k.startsWith('2') || k.startsWith('3')).reduce((s, [, v]) => s + v, 0);
+        if (tot > 0) sr = parseFloat((ok2 / tot * 100).toFixed(2));
+    }
+
+    // ── Active streams ──
+    const totalStreams = sum.total_active_streams || nodes.reduce((s, n) => s + (n.concurrent_requests || 0), 0);
+
+    // ── Deltas vs last render ──
+    const prevReq = liveHistory.reqs.length > 1 ? liveHistory.reqs[liveHistory.reqs.length - 2] : reqPerMin;
+    const prevErr = liveHistory.errs.length > 1 ? liveHistory.errs[liveHistory.errs.length - 2] : errPerMin;
+
+    // Helper: flash element
+    const flash = (id, cls) => { const el = document.getElementById(id); if (!el) return; el.classList.remove('flash-green','flash-red'); void el.offsetWidth; el.classList.add(cls); };
+
+    // ── Hero: requests/min ──
+    const rpsEl = document.getElementById('lv-rps');
+    const prevRpsText = rpsEl?.textContent;
+    if (rpsEl) { rpsEl.textContent = fmtN(reqPerMin); rpsEl.className = 'lhc-val' + (reqPerMin > 500 ? ' cyan' : ''); }
+    const rpsDelta = reqPerMin - prevReq;
+    const rpsDeltaEl = document.getElementById('lv-rps-delta');
+    if (rpsDeltaEl) { rpsDeltaEl.textContent = (rpsDelta >= 0 ? '▲ +' : '▼ ') + fmtN(Math.abs(rpsDelta)) + '/min'; rpsDeltaEl.className = 'lhc-delta ' + (rpsDelta > 0 ? 'up' : rpsDelta < 0 ? 'down' : 'flat'); }
+    document.getElementById('lv-rps-card').className = 'lhc' + (reqPerMin > 0 ? ' pulse-cyan' : '');
+
+    // ── Hero: errors/min ──
+    const errEl = document.getElementById('lv-err');
+    if (errEl) { errEl.textContent = fmtN(errPerMin); errEl.className = 'lhc-val ' + (errPerMin === 0 ? 'green' : errPerMin < 10 ? 'yellow' : 'red'); }
+    const errDeltaEl = document.getElementById('lv-err-delta');
+    if (errDeltaEl) { const d = errPerMin - prevErr; errDeltaEl.textContent = (d >= 0 ? '▲ +' : '▼ ') + fmtN(Math.abs(d)) + '/min'; errDeltaEl.className = 'lhc-delta ' + (d > 0 ? 'down' : d < 0 ? 'up' : 'flat'); }
+    if (errPerMin > 0) flash('lv-err-card', 'flash-red');
+
+    // ── Hero: bandwidth ──
+    const totalMbps = mbpsRx + mbpsTx;
+    const bwEl = document.getElementById('lv-bw');
+    if (bwEl) bwEl.innerHTML = (totalMbps > 0 ? totalMbps.toFixed(1) : '0.0') + '<span class="lhc-unit">Mbps</span>';
+    const bwSub = document.getElementById('lv-bw-sub');
+    if (bwSub) bwSub.innerHTML = `<span style="color:var(--cyan)">↓${mbpsRx.toFixed(1)}</span> &nbsp;<span style="color:var(--orange)">↑${mbpsTx.toFixed(1)}</span> <span style="color:var(--dim);font-size:9px;margin-left:4px;">Mbps</span>`;
+
+    // ── Hero: success rate ──
+    const srEl = document.getElementById('lv-sr');
+    if (srEl) { srEl.textContent = sr != null ? sr + '%' : '—'; srEl.className = 'lhc-val ' + (sr >= 99 ? 'green' : sr >= 90 ? 'yellow' : 'red'); }
+    document.getElementById('lv-sr-card').className = 'lhc ' + (sr >= 99 ? 'pulse-green' : sr >= 90 ? 'pulse-orange' : 'pulse-red');
+    const srSub = document.getElementById('lv-sr-sub-label'); if (srSub) srSub.textContent = srIsInterval ? 'this interval · 1min window' : 'cumulative · awaiting history';
+
+    // ── Stream ticker ──
+    const streamNodesEl = document.getElementById('lv-stream-nodes');
+    if (streamNodesEl) {
+        streamNodesEl.innerHTML = nodes.map(n =>
+            `<div class="st-node"><span class="st-node-name">${nodeName(n.node_ip)}</span><span class="st-node-val">${n.concurrent_requests ?? '—'}</span></div>`
+        ).join('');
+    }
+    const stTotal = document.getElementById('lv-stream-total');
+    if (stTotal) stTotal.innerHTML = `${totalStreams}<small>streams</small>`;
+
+    // ── BW meter + sparklines ──
+    const maxBw = Math.max(...liveHistory.rx, ...liveHistory.tx, 0.1);
+    setSparkline('lv-rx-spark', liveHistory.rx, 'var(--cyan)');
+    setSparkline('lv-tx-spark', liveHistory.tx, 'var(--orange)');
+    setSparkline('lv-perr-spark', liveHistory.perr, 'var(--red)');
+    const rxV = document.getElementById('lv-rx-val'); if (rxV) rxV.textContent = mbpsRx.toFixed(2) + ' Mbps';
+    const txV = document.getElementById('lv-tx-val'); if (txV) txV.textContent = mbpsTx.toFixed(2) + ' Mbps';
+    const perrV = document.getElementById('lv-perr-val'); if (perrV) perrV.textContent = fmtN(totalPerr);
+    const rxBar = document.getElementById('lv-rx-bar'); if (rxBar) rxBar.style.width = Math.min(100, maxBw > 0 ? (mbpsRx / maxBw) * 100 : 0) + '%';
+    const txBar = document.getElementById('lv-tx-bar'); if (txBar) txBar.style.width = Math.min(100, maxBw > 0 ? (mbpsTx / maxBw) * 100 : 0) + '%';
+    const perrBar = document.getElementById('lv-perr-bar'); if (perrBar) perrBar.style.width = Math.min(100, totalPerr > 0 ? Math.min(totalPerr / 100, 1) * 100 : 0) + '%';
+
+    // ── Node vitals cards ──
+    const nvCol = document.getElementById('lv-nodes-col');
+    if (nvCol) {
+        const nodeColors = ['var(--orange)', 'var(--cyan)'];
+        nvCol.innerHTML = nodes.map((n, i) => {
+            const memMB = n.resident_memory_bytes ? (n.resident_memory_bytes / 1024 / 1024).toFixed(0) : null;
+            const rtt = avgRtt(n);
+            const haOk = n.ha_connections === 4;
+            const errs = n.request_errors || 0;
+            const uptime = n.process_start_time ? Math.round((Date.now() / 1000 - n.process_start_time) / 3600) : null;
+            return `<div class="nv-card">
+                <div class="nv-head">
+                    <div>
+                        <div class="nv-name" style="color:${nodeColors[i]}">${nodeName(n.node_ip)}</div>
+                        <div class="nv-ip">${n.node_ip}</div>
+                    </div>
+                    <div class="spill ${haOk ? 'healthy' : 'degraded'}"><div class="sdot"></div>${haOk ? 'healthy' : 'degraded'}</div>
+                </div>
+                <div class="nv-body">
+                    <div class="nv-row"><span class="nv-k">HA Conns</span><span class="nv-v ${haOk ? 'green' : 'red'}">${n.ha_connections ?? '—'}<small>/4</small></span></div>
+                    <div class="nv-row"><span class="nv-k">Concurrent Reqs</span><span class="nv-v cyan">${n.concurrent_requests ?? '—'}</span></div>
+                    <div class="nv-row"><span class="nv-k">Proxy Errors</span><span class="nv-v ${errs > 0 ? 'red' : 'green'}">${fmtN(errs)}</span></div>
+                    <div class="nv-row"><span class="nv-k">Avg RTT</span><span class="nv-v green">${rtt != null ? rtt : '—'}<small>ms</small></span></div>
+                    <div class="nv-row"><span class="nv-k">Memory</span><span class="nv-v ${memMB > 200 ? 'yellow' : ''}">${memMB != null ? memMB : '—'}<small>MB</small></span></div>
+                    <div class="nv-row"><span class="nv-k">Uptime</span><span class="nv-v">${uptime != null ? uptime + 'h' : '—'}</span></div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Error feed ──
+    const errFeed = document.getElementById('lv-err-feed');
+    const errBadge = document.getElementById('lv-err-badge');
+    if (errFeed) {
+        if (!errs || !errs.length) {
+            errFeed.innerHTML = '<div class="no-data" style="padding:14px 16px;">No recent errors</div>';
+            if (errBadge) errBadge.textContent = 'clean';
+        } else {
+            // Flatten and sort by latest
+            const flat = [];
+            errs.forEach(err => {
+                const dim = err.dimensions || {};
+                flat.push({
+                    status: dim.edgeResponseStatus || 0,
+                    host: dim.clientRequestHTTPHost || '',
+                    path: dim.clientRequestPath || '',
+                    count: err.count,
+                    time: dim.datetimeFiveMinutes ? new Date(dim.datetimeFiveMinutes) : null
+                });
+            });
+            flat.sort((a, b) => (b.time || 0) - (a.time || 0));
+            const totalErrCount = flat.reduce((s, e) => s + e.count, 0);
+            if (errBadge) errBadge.textContent = fmtN(totalErrCount) + ' errors';
+            errFeed.innerHTML = flat.slice(0, 12).map(e => {
+                const cls = e.status >= 500 ? 'c5' : 'c4';
+                return `<div class="efi">
+                    <div class="efi-code ${cls}">${e.status}</div>
+                    <div class="efi-host">${e.host}<span>${e.path}</span></div>
+                    <div class="efi-meta">
+                        <div class="efi-cnt">${fmtN(e.count)}</div>
+                        <div>${e.time ? e.time.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ''}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+    }
+
+    // ── QUIC mini grid ──
+    const quicGrid = document.getElementById('lv-quic-grid');
+    const quicBadge = document.getElementById('lv-quic-badge');
+    if (quicGrid) {
+        const all = [];
+        const nodeColors = ['var(--orange)', 'var(--cyan)'];
+        nodes.forEach((n, ni) => (n.quic_connections || []).forEach(c => all.push({ ...c, node_ip: n.node_ip, ni })));
+        if (quicBadge) quicBadge.textContent = all.length + ' connections';
+        const stateNames = { 1: 'Slow Start', 2: 'Congestion Avoid', 3: 'Steady', 4: 'App Limited' };
+        quicGrid.innerHTML = all.map(c => {
+            const rttColor = c.latest_rtt < 15 ? 'var(--green)' : c.latest_rtt < 30 ? 'var(--yellow)' : 'var(--red)';
+            return `<div class="qm-conn">
+                <div class="qm-conn-head">
+                    <span class="qm-node" style="color:${nodeColors[c.ni] || 'var(--muted)'}">${nodeName(c.node_ip)} <span style="font-size:9px;font-weight:400;color:var(--dim);">#${c.conn_index}</span></span>
+                    ${c.edge_location ? `<span class="qm-pop">${c.edge_location}</span>` : ''}
+                </div>
+                <div class="qm-rtt" style="color:${rttColor}">${c.latest_rtt ?? '—'}<small>ms</small></div>
+                <div class="qm-state">${stateNames[c.congestion_state] || '—'} · ${c.lost_packets?.reduce((s,l)=>s+(l.count||0),0) || 0} lost</div>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Webhook Offenders ──
+    renderWebhookOffenders(errs);
+}
+
+function setSparkline(id, data, color) {
+    const el = document.getElementById(id);
+    if (!el || !data.length) return;
+    const max = Math.max(...data, 0.001);
+    el.innerHTML = data.map(v =>
+        `<div class="bw-spark-bar" style="height:${Math.max(8, (v / max) * 100)}%;background:${color};"></div>`
+    ).join('');
+}
+
+// ── WEBHOOK OFFENDER TIMELINE ─────────────────────────────
+function renderWebhookOffenders(errors) {
+    const el = document.getElementById('lv-wo-body');
+    const badge = document.getElementById('lv-wo-badge');
+    if (!el) return;
+    if (!errors || !errors.length) {
+        el.innerHTML = '<div class="no-data" style="padding:16px;color:var(--green);">✓ No offenders in past hour</div>';
+        if (badge) { badge.textContent = 'clean'; badge.className = 'badge green'; }
+        return;
+    }
+
+    // Build a map: "host|path" → { codes: {}, buckets: {ts: {codes}}, total, latest }
+    const endpoints = {};
+    const now = Date.now();
+
+    errors.forEach(err => {
+        const dim = err.dimensions || {};
+        const host = dim.clientRequestHTTPHost || '';
+        const path = dim.clientRequestPath || '';
+        const code = String(dim.edgeResponseStatus || 0);
+        const key = host + '|' + path;
+        const bucketTs = dim.datetimeFiveMinutes ? new Date(dim.datetimeFiveMinutes).getTime() : null;
+
+        if (!endpoints[key]) endpoints[key] = { host, path, codes: {}, buckets: {}, total: 0, latest: null };
+        const ep = endpoints[key];
+        ep.codes[code] = (ep.codes[code] || 0) + err.count;
+        ep.total += err.count;
+        if (bucketTs) {
+            if (!ep.latest || bucketTs > ep.latest) ep.latest = bucketTs;
+            if (!ep.buckets[bucketTs]) ep.buckets[bucketTs] = {};
+            ep.buckets[bucketTs][code] = (ep.buckets[bucketTs][code] || 0) + err.count;
+        }
+    });
+
+    // Build 12 x 5-min buckets covering the past hour
+    const BUCKET_MS = 5 * 60 * 1000;
+    const bucketCount = 12;
+    const newestBucket = Math.floor(now / BUCKET_MS) * BUCKET_MS;
+    const bucketTimes = Array.from({length: bucketCount}, (_, i) => newestBucket - (bucketCount - 1 - i) * BUCKET_MS);
+
+    // Sort endpoints: most recent offenders first, then by total
+    const sorted = Object.values(endpoints).sort((a, b) => {
+        const aAge = a.latest || 0, bAge = b.latest || 0;
+        if (bAge !== aAge) return bAge - aAge;
+        return b.total - a.total;
+    });
+
+    const totalErrors = sorted.reduce((s, e) => s + e.total, 0);
+    if (badge) { badge.textContent = fmtN(totalErrors) + ' errors'; badge.className = 'badge red'; }
+
+    const fmtAge = (ts) => {
+        if (!ts) return '';
+        const mins = Math.round((now - ts) / 60000);
+        if (mins < 2) return 'just now';
+        if (mins < 60) return mins + 'm ago';
+        return Math.round(mins / 60) + 'h ago';
+    };
+
+    el.innerHTML = sorted.map(ep => {
+        const has5xx = Object.keys(ep.codes).some(c => c.startsWith('5'));
+        const has4xx = Object.keys(ep.codes).some(c => c.startsWith('4'));
+        const severity = has5xx ? 'critical' : 'warning';
+        const ageMs = ep.latest ? now - ep.latest : Infinity;
+        const ageClass = ageMs < 10 * 60000 ? 'recent' : ageMs < 30 * 60000 ? 'aging' : '';
+
+        // Code pills sorted by count desc
+        const codePills = Object.entries(ep.codes)
+            .sort((a, b) => b[1] - a[1])
+            .map(([code, cnt]) => {
+                const cls = code.startsWith('5') ? 'c5' : 'c4';
+                return `<span class="wo-code ${cls}">${code} ×${fmtN(cnt)}</span>`;
+            }).join('');
+
+        // Timeline: for each 5-min bucket, find max count and classify
+        const maxBucketCount = Math.max(...bucketTimes.map(bt => {
+            const b = ep.buckets[bt] || {};
+            return Object.values(b).reduce((s, v) => s + v, 0);
+        }), 1);
+
+        const dots = bucketTimes.map((bt, i) => {
+            const b = ep.buckets[bt] || {};
+            const cnt = Object.values(b).reduce((s, v) => s + v, 0);
+            const b5 = Object.keys(b).some(c => c.startsWith('5'));
+            const b4 = Object.keys(b).some(c => c.startsWith('4'));
+            const cls = cnt === 0 ? 'empty' : (b5 && b4) ? 'has-mix' : b5 ? 'has-5xx' : 'has-4xx';
+            const heightPct = cnt === 0 ? 10 : Math.max(20, Math.round((cnt / maxBucketCount) * 100));
+            const label = i === 0 ? '-60m' : i === 6 ? '-30m' : i === 11 ? 'now' : '';
+            return { cls, heightPct, label, cnt, bt };
+        });
+
+        const timelineHtml = `
+            <div class="wo-timeline">
+                ${dots.map(d => `<div class="wo-dot ${d.cls}" style="height:${d.heightPct}%" title="${d.cnt > 0 ? d.cnt + ' errors at ' + new Date(d.bt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : 'no errors'}"></div>`).join('')}
+            </div>
+            <div class="wo-tl-labels">
+                ${dots.map(d => `<div class="wo-tl-lbl">${d.label}</div>`).join('')}
+            </div>`;
+
+        return `<div class="wo-row ${severity}">
+            <div>
+                <div class="wo-endpoint"><span class="wo-host">${ep.host}</span><span class="wo-path">${ep.path}</span></div>
+                <div class="wo-meta">
+                    <div class="wo-codes">${codePills}</div>
+                    <span class="wo-lastseen ${ageClass}">last seen ${fmtAge(ep.latest)}</span>
+                </div>
+                ${timelineHtml}
+            </div>
+            <div class="wo-right">
+                <div class="wo-total">${fmtN(ep.total)}</div>
+                <div class="wo-total-lbl">hits</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+</script>
+</body>
+</html>
