@@ -1,8 +1,30 @@
 # Alfred's Intelligence Network (AIN)
 
-> Real-time EVE Online kill intelligence — live feed, 3D starmap, alliance tracking, and deep analytics powered by zKillboard and n8n.
-
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-zkillmap.com-brightgreen?style=for-the-badge&logo=googlechrome&logoColor=white)](https://zkillmap.com)
+
+---
+
+**AIN is a real-time kill intelligence platform for EVE Online.**
+
+Every ship destroyed anywhere in New Eden appears here within seconds — who died, in what ship, to whom, for how much ISK, and exactly where on the map. You can filter by ship class, space type, ISK value, region, or alliance. You can watch a specific corporation light up across the global feed in real time. You can pull up a 3D map of 65,000 star systems and see where the violence is concentrated right now.
+
+If you're an FC tracking a hostile fleet, an intel officer watching a theater develop, or a pilot deciding whether a system is safe to enter — AIN gives you the picture, instantly.
+
+---
+
+## Who It's For
+
+| Role | What AIN gives you |
+|------|-------------------|
+| **Fleet Commanders** | Live kill feed filtered to your theater — watch hostiles reshipping, track losses, see momentum shift in real time |
+| **Intel Officers** | Alliance and corp tracking across the full New Eden feed, with per-entity stats: efficiency, active pilots, top ships |
+| **Hunters & Solo Pilots** | Check a system's recent activity before you jump in — who's active, what they're flying, how much they've lost today |
+| **Alliance Leadership** | 30-day kill trends, ISK efficiency, activity heatmaps, head-to-head metrics between tracked entities |
+| **Anyone curious** | A beautiful, live window into the largest player-driven war economy in gaming |
+
+> **[Try it live at zkillmap.com →](https://zkillmap.com)**
+
+---
 
 ![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?logo=vite&logoColor=white)
@@ -14,9 +36,9 @@
 
 ## What is AIN?
 
-AIN is a live killmail intelligence dashboard built for EVE Online players and alliances. It pulls killmail data from zKillboard in real time, indexes it through a Redis-backed n8n pipeline, and presents it through a polished React frontend with multiple views, deep filtering, and a 3D interactive starmap.
+AIN is a live killmail intelligence dashboard built for EVE Online players and alliances. Kill data flows in from zKillboard in real time, gets indexed across 20+ dimensions, and is served through a polished React frontend with multiple feed views, deep filtering, and a 3D interactive starmap.
 
-It was built to give alliance FCs, intel officers, and curious pilots a fast, beautiful way to understand what's happening across New Eden.
+It was built to answer the question every pilot asks constantly: *what's happening out there, and should I be worried?*
 
 ---
 
