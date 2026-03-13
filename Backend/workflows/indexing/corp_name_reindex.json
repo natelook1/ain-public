@@ -1,0 +1,46 @@
+{
+  "name": "Corporation Name Reindex (From Killmails)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-corp-reindex",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Corporation Name Reindex - From Existing Killmail Data\n * Version: 2.0 - NO ESI CALLS\n * \n * Reads corp names directly from existing killmail data in Redis.\n */\n\nconst Redis = require('ioredis');\n\nconst REDIS_CONFIG = {\n    host: 'redis',\n    port: 6379,\n    db: 0,\n    connectTimeout: 10000,\n    maxRetriesPerRequest: 3\n};\n\nconst CORP_NAME_TO_ID_KEY = 'eve:corporation:name_to_id';\nconst CORP_ID_TO_NAME_KEY = 'eve:corporation:id_to_name';\nconst CORP_TICKER_TO_ID_KEY = 'eve:corporation:ticker_to_id';\nconst CORP_ID_TO_TICKER_KEY = 'eve:corporation:id_to_ticker';\nconst KILLMAIL_DATA_KEY = 'intel:kill:data';\n\nfunction sleep(ms) {\n    return new Promise(resolve => setTimeout(resolve, ms));\n}\n\nfunction formatNumber(num) {\n    return num.toLocaleString('en-US');\n}\n\nlet redis;\nconst stats = {\n    startTime: Date.now(),\n    killmailsScanned: 0,\n    corpsFound: 0,\n    indexed: 0,\n    skipped: 0\n};\n\ntry {\n    console.log('='.repeat(70));\n    console.log('   CORPORATION NAME REINDEX (FROM KILLMAIL DATA)');\n    console.log('='.repeat(70));\n\n    redis = new Redis(REDIS_CONFIG);\n\n    await new Promise((resolve, reject) => {\n        redis.on('ready', () => {\n            console.log('[Redis] ✅ Connected\\n');\n            resolve();\n        });\n        redis.on('error', (err) => {\n            console.error('[Redis] ❌ Connection failed:', err.message);\n            reject(err);\n        });\n    });\n\n    console.log('[Scan] Scanning killmail data for corporation names...');\n\n    // Collect all unique corp names from killmail data\n    const corpMap = new Map(); // corpId -> { name, ticker }\n    let cursor = '0';\n    let batchNum = 0;\n\n    do {\n        // Scan killmail hash in batches\n        const [nextCursor, killmailIds] = await redis.hscan(\n            KILLMAIL_DATA_KEY,\n            cursor,\n            'COUNT', 500\n        );\n\n        cursor = nextCursor;\n\n        // Fetch killmail data for this batch\n        if (killmailIds.length > 0) {\n            // hscan returns [field, value, field, value, ...]\n            // So we take every other item starting from index 1 (the values)\n            const killmailJsons = [];\n            for (let i = 1; i < killmailIds.length; i += 2) {\n                killmailJsons.push(killmailIds[i]);\n            }\n\n            batchNum++;\n            stats.killmailsScanned += killmailJsons.length;\n\n            console.log(`[Batch ${batchNum}] Processing ${killmailJsons.length} killmails...`);\n\n            // Extract corp info from each killmail\n            for (const kmJson of killmailJsons) {\n                try {\n                    const km = JSON.parse(kmJson);\n\n                    // Victim corp\n                    if (km.victim?.corporation_id && km.victim?.corporation_name) {\n                        const corpId = String(km.victim.corporation_id);\n                        const name = km.victim.corporation_name;\n\n                        if (name && name !== 'Unknown Corp' && !name.startsWith('Corp (') && !name.startsWith('RETRY:')) {\n                            if (!corpMap.has(corpId)) {\n                                corpMap.set(corpId, { name, ticker: null });\n                            }\n                        }\n                    }\n\n                    // Attacker corps\n                    if (km.attackers && Array.isArray(km.attackers)) {\n                        for (const attacker of km.attackers) {\n                            if (attacker.corporation_id && attacker.corporation_name) {\n                                const corpId = String(attacker.corporation_id);\n                                const name = attacker.corporation_name;\n\n                                if (name && name !== 'Unknown Corp' && !name.startsWith('Corp (') && !name.startsWith('RETRY:')) {\n                                    if (!corpMap.has(corpId)) {\n                                        corpMap.set(corpId, { name, ticker: null });\n                                    }\n                                }\n                            }\n                        }\n                    }\n                } catch (e) {\n                    // Skip invalid JSON\n                }\n            }\n\n            console.log(`  Found ${formatNumber(corpMap.size)} unique corporations so far`);\n\n            // Small delay to avoid overwhelming Redis\n            if (cursor !== '0') {\n                await sleep(100);\n            }\n        }\n    } while (cursor !== '0');\n\n    stats.corpsFound = corpMap.size;\n\n    console.log(`\\n[Index] Indexing ${formatNumber(corpMap.size)} corporations into Redis...`);\n\n    if (corpMap.size === 0) {\n        return [{ json: {\n            success: true,\n            message: 'No corporations found in killmail data',\n            stats\n        } }];\n    }\n\n    // Index all corps in Redis\n    const indexPipeline = redis.pipeline();\n\n    for (const [corpId, data] of corpMap.entries()) {\n        const nameLower = data.name.toLowerCase();\n\n        // Store bidirectional name mappings\n        indexPipeline.hset(CORP_ID_TO_NAME_KEY, corpId, data.name);\n        indexPipeline.hset(CORP_NAME_TO_ID_KEY, nameLower, corpId);\n\n        stats.indexed++;\n    }\n\n    await indexPipeline.exec();\n\n    const totalTime = Math.floor((Date.now() - stats.startTime) / 1000);\n\n    console.log('\\n='.repeat(70));\n    console.log('                     FINAL REPORT');\n    console.log('='.repeat(70));\n    console.log(`\\nKillmails Scanned:            ${formatNumber(stats.killmailsScanned)}`);\n    console.log(`Unique Corporations Found:    ${formatNumber(stats.corpsFound)}`);\n    console.log(`Successfully Indexed:         ${formatNumber(stats.indexed)} ✅`);\n    console.log(`\\nTotal Time:                   ${totalTime} seconds`);\n    console.log(`Average Rate:                 ${(stats.indexed / totalTime).toFixed(1)} corps/second`);\n    console.log('='.repeat(70));\n\n    return [{ json: {\n        success: true,\n        stats: {\n            killmailsScanned: stats.killmailsScanned,\n            corpsFound: stats.corpsFound,\n            indexed: stats.indexed,\n            durationSeconds: totalTime\n        }\n    } }];\n\n} catch (error) {\n    console.error('\\n❌ FATAL ERROR:', error.message);\n    console.error(error.stack);\n\n    return [{ json: {\n        success: false,\n        error: error.message,\n        stats\n    } }];\n} finally {\n    if (redis) {\n        await redis.quit();\n        console.log('\\n[Redis] Connection closed');\n    }\n}\n"
+      },
+      "id": "corp-reindex-code-node",
+      "name": "Reindex Corporation Names",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Reindex Corporation Names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

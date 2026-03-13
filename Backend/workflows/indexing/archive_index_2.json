@@ -1,0 +1,488 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://esi.evetech.net/latest/killmails/{{$json.package.killmail.killmail_id}}/{{$json.package.zkb.hash}}/",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -944,
+        -64
+      ],
+      "id": "96bbcacc-0254-4319-a771-e2b484163ba4",
+      "name": "ESI Kill Pull"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1504,
+        -64
+      ],
+      "id": "52c524fc-3632-47a4-93b3-c21042bb1e2a",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: Deduplicate Batch\n// Purpose: Checks batch against intel:kill:data. Only passes on new kills.\n\nconst Redis = require('ioredis');\nlet redis;\n\n// The hash your \"5. Redis Processing\" node writes to\nconst PROCESSED_HASH_KEY = 'intel:kill:data'; \n\ntry {\n    const items = $input.all();\n    if (items.length === 0) {\n        console.log('[Dedupe] No items in batch. Stopping.');\n        return []; // Stop the workflow run\n    }\n\n    // Extract the killmail_id from the specific input structure\n    // The input comes from \"Get Batch & Set Heartbeat\"\n    const killIdsToCheck = items.map(item => String(item.json.package.killmail.killmail_id));\n    \n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n\n    // Use HEXISTS in a pipeline for a super-fast bulk check\n    const checkPipeline = redis.pipeline();\n    killIdsToCheck.forEach(id => {\n        checkPipeline.hexists(PROCESSED_HASH_KEY, id);\n    });\n    const existsResults = await checkPipeline.exec();\n\n    const newKills = []; // This will hold only new kills\n    let duplicateCount = 0;\n\n    for (let i = 0; i < items.length; i++) {\n        // existsResults[i] is [error, result]\n        // result is 0 if it does NOT exist, 1 if it does\n        const doesExist = existsResults[i][1] === 1;\n\n        if (!doesExist) {\n            newKills.push(items[i]); // Pass the original item through\n        } else {\n            duplicateCount++;\n        }\n    }\n\n    if (duplicateCount > 0) {\n        console.log(`[Dedupe] Dropped ${duplicateCount} duplicate kills from this batch.`);\n    }\n    \n    if (newKills.length === 0) {\n        console.log('[Dedupe] All kills in batch were duplicates. Stopping.');\n        return []; // Stop the workflow run\n    }\n\n    console.log(`[Dedupe] Passing ${newKills.length} new kills to processor.`);\n    return newKills;\n\n} catch (error) {\n    console.error('❌ CRITICAL ERROR in Deduplicate Batch:', error.message, error.stack);\n    throw new Error('Deduplicate Batch failed: ' + error.message);\n} finally {\n    if (redis) {\n        await redis.quit();\n        console.log('[Dedupe] Redis connection closed.');\n    }\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        -64
+      ],
+      "id": "c47b15ff-6c51-4dbb-be31-c2b3b1cf4e09",
+      "name": "Deduplicate Batch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: \"Get Batch & Set Heartbeat (Worker 1)\" - FIXED\n\n// --- CONFIGURATION ---\nconst WORKER_ID = \"3\";\nconst BATCH_SIZE = 30;\nconst QUEUE_KEY = 'intel:queue:archive';\nconst HEARTBEAT_KEY = `processing:worker:${WORKER_ID}`;\n// ---------------------\n\nconst Redis = require('ioredis');\nlet redis;\nconst killmails = [];\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n    await redis.ping();\n\n    // 1. Set heartbeat\n    await redis.set(HEARTBEAT_KEY, new Date().toISOString(), 'EX', 60);\n    console.log(`❤️ Set heartbeat for ${HEARTBEAT_KEY}`); // FIXED: Added parentheses\n\n    // 2. Pull batch\n    const pipe = redis.pipeline();\n    for (let i = 0; i < BATCH_SIZE; i++) {\n        pipe.lpop(QUEUE_KEY);\n    }\n    const results = await pipe.exec();\n\n    for (const [err, data] of results) {\n        if (!err && data) {\n            try {\n                killmails.push(JSON.parse(data));\n            } catch (parseErr) {\n                console.warn(`[Worker ${WORKER_ID}] Failed to parse killmail data from queue: ${data}`); // FIXED\n            }\n        }\n    }\n\n    if (killmails.length === 0) {\n        console.log(`[Worker ${WORKER_ID}] No killmails in queue. Standing by.`); // FIXED\n        return [];\n    }\n\n    console.log(`[Worker ${WORKER_ID}] Dequeued ${killmails.length} killmails for processing.`); // FIXED\n    \n    // 3. Re-format data\n    return killmails.map(km => ({\n        json: {\n            package: {\n                killmail: { killmail_id: km.kill_id },\n                zkb: { hash: km.hash }\n            }\n        }\n    }));\n    \n} catch (e) {\n    console.error(`Error in Processor ${WORKER_ID}:`, e.message); // FIXED\n    throw e;\n} finally {\n    if (redis) await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1296,
+        -64
+      ],
+      "id": "6bad85e2-7123-40b8-b65d-293d53130b18",
+      "name": "Get Batch & Set Heartbeat (Worker 3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Prepare for Name Resolution - v1.11 (Fixed zkb_hash extraction)\n\nconst items = $input.all();\nconst allUniqueIds = new Set();\nconst killmailIdToDataMap = new Map();\n\nfor (const item of items) {\n    const km = item.json;\n    let hash = null;\n\n    // Method 1: Check pairedItem path\n    if (item.pairedItem?.json?.package?.zkb?.hash) {\n        hash = item.pairedItem.json.package.zkb.hash;\n    }\n    \n    // Method 2: Check if hash is already in km.package\n    if (!hash && km?.package?.zkb?.hash) {\n        hash = km.package.zkb.hash;\n    }\n    \n    // Method 3: Check if zkb_hash already exists at top level\n    if (!hash && km?.zkb_hash) {\n        hash = km.zkb_hash;\n    }\n\n    if (!km || !km.killmail_id) {\n        continue;\n    }\n\n    // Store killmail with hash at top level\n    const dataToStore = { ...km, zkb_hash: hash };\n    killmailIdToDataMap.set(km.killmail_id, dataToStore);\n\n    const addId = (id) => {\n        if (typeof id === 'number' && id > 0) {\n            allUniqueIds.add(id);\n        }\n    };\n\n    addId(km.solar_system_id);\n    \n    if (km.victim) {\n        addId(km.victim.character_id);\n        addId(km.victim.corporation_id);\n        addId(km.victim.alliance_id);\n        addId(km.victim.ship_type_id);\n        addId(km.victim.faction_id);\n    }\n\n    if (Array.isArray(km.attackers)) {\n        for (const attacker of km.attackers) {\n            addId(attacker.character_id);\n            addId(attacker.corporation_id);\n            addId(attacker.alliance_id);\n            addId(attacker.faction_id);\n            addId(attacker.ship_type_id);\n            addId(attacker.weapon_type_id);\n        }\n    }\n\n    if (km.victim?.items && Array.isArray(km.victim.items)) {\n        for (const item of km.victim.items) {\n            addId(item.item_type_id);\n        }\n    }\n}\n\nconst all_ids_to_resolve = [...allUniqueIds];\n\nconst outputData = {\n    killmail_id_map: Object.fromEntries(killmailIdToDataMap),\n    all_ids_to_resolve: all_ids_to_resolve\n};\n\nconsole.log(`Extracted ${all_ids_to_resolve.length} valid unique IDs for resolution.`);\nconsole.log(`Passing through ${killmailIdToDataMap.size} raw killmails for processing.`);\n\nreturn [{ json: outputData }];"
+      },
+      "id": "7242b19b-add4-4160-8df5-88472550b9b8",
+      "name": "1. Prepare for Name Resolution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -736,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node 2: Check Redis Cache (v1.4 - Full Restore + Retry Logic)\nconst Redis = require('ioredis');\nlet redis;\n\ntry {\n\t// --- Initialization ---\n\tredis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n\t\n\tawait new Promise((resolve, reject) => {\n\t\tredis.on('ready', resolve);\n\t\tredis.on('error', (err) => {\n\t\t\tconsole.error('[Check Cache] Initial Redis connection error:', err);\n\t\t\treject(err);\n\t\t});\n\t});\n\t\n\tconsole.log('[Check Cache] Connected to Redis successfully.');\n\n\tconst inputData = $input.first().json;\n\tconst idsToCheck = inputData.all_ids_to_resolve || [];\n\t\n\t// Constants for Hash Keys\n\tconst ID_TO_NAME_HASH_KEY = 'eve:id_to_name';\n\tconst NAME_TO_ID_HASH_KEY = 'eve:name_to_id';\n\t\n\tconst cachedNames = {}; // Map of { id: Name } for found names\n\tconst missingIds = [];  // List of IDs to send to ESI resolution\n\tconst RETRY_COOLDOWN = 1000 * 60 * 60 * 4; // 4 Hour Negative Cache Cooldown\n\n\tif (idsToCheck.length > 0) {\n\t\tconsole.log(`[Check Cache] Validating ${idsToCheck.length} unique IDs against Redis...`);\n\n\t\t// --- Step 1: Bulk Check Existence in Hash ---\n\t\tconst existsPipeline = redis.pipeline();\n\t\tidsToCheck.forEach(id => {\n\t\t\tif (id) {\n\t\t\t\texistsPipeline.hexists(ID_TO_NAME_HASH_KEY, String(id));\n\t\t\t} else {\n\t\t\t\tconsole.warn('[Check Cache] Encountered null/undefined ID in resolution list.');\n\t\t\t}\n\t\t});\n\t\t\n\t\tconst existsResults = await existsPipeline.exec();\n\n\t\tconst existingIds = []; \n\t\tconst existingStringIds = []; \n\t\t\n\t\tfor (let i = 0; i < idsToCheck.length; i++) {\n\t\t\tconst id = idsToCheck[i];\n\t\t\t// Check Redis result: index [i], error [0], result [1] (1 = exists)\n\t\t\tif (id && existsResults && existsResults[i] && !existsResults[i][0] && existsResults[i][1] === 1) {\n\t\t\t\texistingIds.push(id);\n\t\t\t\texistingStringIds.push(String(id));\n\t\t\t} else if (id) {\n\t\t\t\tmissingIds.push(id);\n\t\t\t}\n\t\t}\n\t\t\n\t\tconsole.log(`[Check Cache] Results: ${existingIds.length} found in cache, ${missingIds.length} identified as missing.`);\n\n\t\t// --- Step 2: Fetch names and evaluate Retry Cooldown ---\n\t\tif (existingStringIds.length > 0) {\n\t\t\tconsole.log(`[Check Cache] Fetching name strings for ${existingStringIds.length} existing IDs...`);\n\t\t\t\n\t\t\tconst nameResults = await redis.hmget(ID_TO_NAME_HASH_KEY, ...existingStringIds);\n\t\t\tconst nameToIdPipeline = redis.pipeline();\n\t\t\tlet hsetnxCount = 0;\n\n\t\t\tfor (let i = 0; i < existingStringIds.length; i++) {\n\t\t\t\tconst stringId = existingStringIds[i];\n\t\t\t\tconst originalId = existingIds[i];\n\t\t\t\tconst name = nameResults[i];\n\n\t\t\t\tif (name && typeof name === 'string' && name.trim() !== '') {\n\t\t\t\t\t\n\t\t\t\t\t// INTELLIGENT RETRY LOGIC\n\t\t\t\t\tif (name.startsWith('RETRY:')) {\n\t\t\t\t\t\tconst parts = name.split(':');\n\t\t\t\t\t\tconst timestamp = parseInt(parts[1], 10);\n\t\t\t\t\t\tconst timeElapsed = Date.now() - timestamp;\n\t\t\t\t\t\t\n\t\t\t\t\t\tif (timeElapsed > RETRY_COOLDOWN) {\n\t\t\t\t\t\t\tconsole.log(`[Check Cache] RETRY cooldown expired for ID ${originalId} (${Math.floor(timeElapsed/60000)}m elapsed). Re-queueing for ESI...`);\n\t\t\t\t\t\t\tmissingIds.push(originalId);\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t// Still in cooldown period, treat as known failure for now\n\t\t\t\t\t\t\tcachedNames[originalId] = name;\n\t\t\t\t\t\t}\n\t\t\t\t\t} else {\n\t\t\t\t\t\t// This is a verified successful name resolution\n\t\t\t\t\t\tcachedNames[originalId] = name;\n\t\t\t\t\t\t\n\t\t\t\t\t\t// Ensure name_to_id reverse index is consistent (lowercase for search)\n\t\t\t\t\t\tnameToIdPipeline.hsetnx(NAME_TO_ID_HASH_KEY, name.toLowerCase(), String(originalId));\n\t\t\t\t\t\thsetnxCount++;\n\t\t\t\t\t}\n\t\t\t\t} else {\n\t\t\t\t\tconsole.warn(`[Check Cache] ID ${stringId} existed in index but returned empty/invalid name. Forcing re-resolve.`);\n\t\t\t\t\tmissingIds.push(originalId);\n\t\t\t\t}\n\t\t\t}\n\n\t\t\t// Execute consistency sync\n\t\t\tif (hsetnxCount > 0) {\n\t\t\t\tconsole.log(`[Check Cache] Syncing ${hsetnxCount} names to reverse search index...`);\n\t\t\t\ttry {\n\t\t\t\t\tconst syncResults = await nameToIdPipeline.exec();\n\t\t\t\t\tconst actualSets = syncResults.filter(r => !r[0] && r[1] === 1).length;\n\t\t\t\t\tif (actualSets > 0) {\n\t\t\t\t\t\tconsole.log(`[Check Cache] Consistency Fix: Added ${actualSets} missing reverse-mappings.`);\n\t\t\t\t\t}\n\t\t\t\t} catch(execError) {\n\t\t\t\t\tconsole.error(`[Check Cache] Error during reverse-sync pipeline: ${execError.message}`);\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t} else {\n\t\tconsole.log('[Check Cache] No IDs provided for resolution in this batch.');\n\t}\n\n\tconsole.log(`[Check Cache] Final Batch Summary: ${Object.keys(cachedNames).length} resolved via Cache, ${missingIds.length} sent to ESI.`);\n\n\t// --- Return to Workflow ---\n\treturn [{ json: {\n\t\tkillmail_id_map: inputData.killmail_id_map,\n\t\tresolved_names: cachedNames,\n\t\tmissing_ids: missingIds\n\t}}];\n\n} catch (error) {\n\tconsole.error('❌ CRITICAL ERROR in Node 2 (Check Redis Cache):', error.message);\n\tconsole.error(error.stack);\n\t\n\tconst inputData = $input.first() ? $input.first().json : {};\n\t// Safety Fallback: send all IDs to ESI if logic fails\n\treturn [{ json: {\n\t\tkillmail_id_map: inputData.killmail_id_map || {},\n\t\tresolved_names: {},\n\t\tmissing_ids: inputData.all_ids_to_resolve || []\n\t}}];\n} finally {\n\tif (redis) {\n\t\tawait redis.quit();\n\t}\n}"
+      },
+      "id": "9cc631e3-c18b-4b6f-885e-5b377cf30584",
+      "name": "2. Check Redis Cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.missing_ids }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "array",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    },
+                    "id": "418fae1d-d195-42bc-a0f3-35570b58a903"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "No"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "175996f2-089f-4286-bbdb-27bdbd9e1411",
+                    "leftValue": "={{ $json.missing_ids }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "array",
+                      "operation": "empty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Yes"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -336,
+        -64
+      ],
+      "id": "d05f7b5f-fcf2-48db-9b48-73e64f87ec71",
+      "name": "Fully Resolved?"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Node 5: Redis Processing & Killmail Indexing\n * Version: 14.0 (Regional Filtering + Pochven Support)\n * \n * Changes in v14.0:\n * - Added Pochven as distinct space_type (region_id 10000070)\n * - Added region_name resolution and storage on each kill\n * - Enhanced getSpaceType to accept regionId parameter\n * - Added detailed logging for regional data\n */\n\nconst Redis = require('ioredis');\n\n// --- 1. CONFIGURATION ---\n\nconst REDIS_CONFIG = { \n    host: 'redis', \n    port: 6379, \n    db: 0, \n    connectTimeout: 5000, \n    maxRetriesPerRequest: 2 \n};\n\nconst MAX_RETRIES = 5;\n\n// Pochven Region ID\nconst POCHVEN_REGION_ID = 10000070;\n\n// Dashboard Constants - Redis Keys\nconst ALLIANCE_SUMMARY_KEY = 'alliance:summary:'; \nconst ALLIANCE_STATS_KEY = 'intel:stats:alliance:'; \nconst CHARACTER_STATS_KEY = 'intel:stats:character:';\nconst SYSTEM_STATS_KEY = 'intel:stats:system:';\nconst ALLIANCE_ACTIVITY_KEY = 'intel:stats:alliance:activity';\nconst ALLIANCE_PILOTS_PREFIX = 'intel:stats:alliance:pilots:';\nconst ALLIANCE_SHIPS_PREFIX = 'intel:stats:alliance:ships:';\n\n// Ship types to exclude from \"top ship\" calculation (capsules and rookie ships)\nconst EXCLUDED_TOP_SHIP_GROUPS = new Set([\n    29,   // Capsule\n    237   // Rookie Ship\n]);\n\n// --- 2. CLASSIFICATION MAPS (FULLY EXPANDED) ---\n\n/**\n * SHIP_CLASS_BASIC_MAP\n * Maps Group IDs to Broad Categories (e.g., \"Frigate\", \"Structure\").\n * Used for the primary filter buttons on the dashboard.\n */\nconst SHIP_CLASS_BASIC_MAP = {\n    // --- Frigates ---\n    25: 'frigate', \n    324: 'frigate', \n    830: 'frigate', \n    831: 'frigate', \n    834: 'frigate', \n    893: 'frigate', \n    1527: 'frigate', \n    237: 'frigate',\n    1283: 'frigate', // Expedition Frigates\n\n    // --- Special ---\n    29: 'capsule', \n    31: 'shuttle',\n\n    // --- Destroyers ---\n    381: 'destroyer', \n    420: 'destroyer', \n    541: 'destroyer', \n    1305: 'destroyer', \n    1534: 'destroyer', \n\n    // --- Cruisers ---\n    26: 'cruiser', \n    358: 'cruiser', \n    540: 'cruiser', \n    832: 'cruiser', \n    833: 'cruiser', \n    906: 'cruiser', \n    963: 'cruiser', \n    1972: 'cruiser',\n\n    // --- Battlecruisers ---\n    419: 'battlecruiser', \n    1201: 'battlecruiser',\n    894: 'battlecruiser', // Command Ships (Sleipnir, Vulture etc) are T2 Battlecruisers\n\n    // --- Battleships ---\n    27: 'battleship', \n    898: 'battleship', \n    900: 'battleship',\n\n    // --- Capitals ---\n    485: 'dreadnought', \n    4594: 'dreadnought', \n    547: 'carrier', \n    1538: 'fax', \n    659: 'super', \n    30: 'super',\n\n    // --- Industrial ---\n    1022: 'mining_haul', \n    1024: 'mining_haul', \n    463: 'mining_haul', \n    543: 'mining_haul',\n    28: 'industrial_base', \n    380: 'industrial_base', \n    1202: 'industrial_base',\n    2016: 'industrial_base', \n    513: 'freighter_cap', \n    883: 'freighter_cap', \n    902: 'freighter_cap', \n    941: 'command_ind', \n    1010: 'industrial_base',\n\n    // --- Fighters ---\n    1537: 'fighter', \n    1652: 'fighter', \n    1653: 'fighter',\n\n    // --- Structures ---\n    23: 'structure', \n    317: 'structure', \n    515: 'structure', \n    1404: 'structure', \n    1406: 'structure', \n    1408: 'structure',\n\n    // --- Deployables ---\n    125: 'deployable', \n    1025: 'deployable', \n    361: 'deployable', \n    1149: 'deployable'\n};\n\n/**\n * SHIP_CLASS_DETAILED_MAP\n * Maps Group IDs to Specific Roles (e.g., \"Interceptor\", \"Citadel\").\n * Used for the \"Advanced\" view on the dashboard.\n */\nconst SHIP_CLASS_DETAILED_MAP = {\n    // --- Frigates ---\n    831: 'interceptor', \n    324: 'assault_frigate', \n    830: 'covert_ops', \n    834: 'stealth_bomber', \n    893: 'electronic_attack', \n    1527: 'logistics_frigate', \n    1022: 'mining_frigate', \n    1024: 'expedition_frigate', \n    237: 'rookie_ship',\n    1283: 'expedition_frigate',\n\n    // --- Destroyers ---\n    420: 'destroyer', \n    541: 'interdictor', \n    1534: 'command_destroyer', \n    1305: 'tactical_destroyer', \n\n    // --- Cruisers ---\n    358: 'heavy_assault', \n    540: 'logistics', \n    832: 'force_recon', \n    833: 'combat_recon', \n    906: 'strategic_cruiser', \n    963: 'strategic_cruiser', \n    1972: 'flag_cruiser',\n\n    // --- Battlecruisers ---\n    1201: 'attack_battlecruiser',\n    894: 'command_ship', // Explicit Command Ships\n\n    // --- BS & Capital ---\n    900: 'marauder', \n    898: 'black_ops', \n    4594: 'lancer_dreadnought', \n    1538: 'force_auxiliary', \n    659: 'supercarrier', \n    30: 'titan',\n\n    // --- Industrial ---\n    380: 'blockade_runner', \n    1202: 'deep_space_transport', \n    2016: 'hauler',\n    463: 'mining_barge', \n    543: 'exhumer', \n    883: 'jump_freighter', \n    513: 'freighter',\n    941: 'industrial_command', \n    902: 'capital_industrial',\n\n    // --- Fighters ---\n    1537: 'fighter', \n    1652: 'light_fighter', \n    1653: 'heavy_fighter',\n\n    // --- Structures ---\n    23: 'control_tower', \n    317: 'starbase_structure', \n    515: 'sentry_gun',\n    361: 'mobile_cyno', \n    1149: 'mobile_warp_disruptor',\n    1408: 'orbital_infrastructure'\n};\n\n/**\n * SHIP_NAME_TO_CLASS_OVERRIDE\n * Manual overrides for ships that ESI classifies vaguely.\n * Maps exact ship name -> Basic Class.\n */\nconst SHIP_NAME_TO_CLASS_OVERRIDE = {\n    // --- SoCT / Special Edition (Often show as Unknown) ---\n    'sunesis': 'destroyer',\n    'gnosis': 'battlecruiser',\n    'praxis': 'battleship',\n    'metamorphosis': 'frigate',\n    'monitor': 'cruiser',\n    'apotheosis': 'shuttle',\n    'shuttle': 'shuttle',\n    \n    // --- Rookie Ships ---\n    'ibis': 'frigate',\n    'velator': 'frigate',\n    'reaper': 'frigate',\n    'impairor': 'frigate',\n    'hematos': 'destroyer',\n    'taipan': 'destroyer',\n    'caedes': 'destroyer',\n    \n    // --- Command Ships (Force to Battlecruiser) ---\n    'sleipnir': 'battlecruiser',\n    'vulture': 'battlecruiser',\n    'absolution': 'battlecruiser',\n    'damnation': 'battlecruiser',\n    'claymore': 'battlecruiser',\n    'nighthawk': 'battlecruiser',\n    'astarte': 'battlecruiser',\n    'eos': 'battlecruiser',\n\n    // --- Mining ---\n    'venture': 'mining_haul', \n    'prospect': 'mining_haul',\n    'endurance': 'mining_haul', \n    'pioneer': 'mining_haul',\n    'perseverance': 'mining_haul', \n    'pioneer consortium issue': 'mining_haul',\n    'venture consortium issue': 'mining_haul', \n    'noctis': 'mining_haul', \n    'excavator': 'mining_haul',\n\n    // --- Industrial ---\n    'squall': 'industrial_base', \n    'deluge': 'industrial_base',\n    'torrent': 'industrial_base', \n    'avalanche': 'freighter_cap', \n    'porpoise': 'command_ind', \n    'outrider': 'command_ind', \n\n    // --- Combat ---\n    'tholos': 'destroyer', \n    'cenotaph': 'battlecruiser',\n    \n    // --- Structures ---\n    'customs office': 'structure', \n    'skyhook': 'structure', \n    'metenox': 'structure',\n    'mercenary den': 'structure',\n    'listening outpost': 'structure', \n    'propaganda broadcast': 'structure',\n    'fob': 'structure', \n    'stronghold': 'structure', \n    'rogue analysis beacon': 'structure',\n    'astrahus': 'structure',\n    'fortizar': 'structure',\n    'keepstar': 'structure',\n    'raitaru': 'structure',\n    'azbel': 'structure',\n    'sotiyo': 'structure',\n    'athanor': 'structure',\n    'tatara': 'structure',\n    'ansiblex': 'structure',\n    'pharolux': 'structure',\n    'tenebrex': 'structure',\n    \n    // --- Deployables ---\n    'mobile cynosural beacon': 'deployable',\n    'mobile tractor unit': 'deployable', \n    'mobile observatory': 'deployable',\n    'mobile small warp disruptor i': 'deployable',\n    'mobile medium warp disruptor i': 'deployable',\n    'mobile large warp disruptor i': 'deployable',\n    'mobile depot': 'deployable',\n    'secure container': 'deployable',\n    'audit log secure container': 'deployable',\n    \n    // --- Other ---\n    'standup': 'fighter'\n};\n\n/**\n * SHIP_NAME_TO_DETAILED_CLASS_OVERRIDE\n * Manual overrides for specific roles.\n * Maps exact ship name -> Detailed Class.\n */\nconst SHIP_NAME_TO_DETAILED_CLASS_OVERRIDE = {\n    // --- SoCT / Special ---\n    'sunesis': 'destroyer',\n    'gnosis': 'battlecruiser',\n    'praxis': 'battleship',\n    'monitor': 'flag_cruiser',\n    'ibis': 'rookie_ship',\n    'velator': 'rookie_ship',\n    'reaper': 'rookie_ship',\n    'impairor': 'rookie_ship',\n\n    // --- Force Recons (Covert Cyno Capable) ---\n    'rapier': 'force_recon',\n    'falcon': 'force_recon',\n    'pilgrim': 'force_recon',\n    'arazu': 'force_recon',\n    'enforcer': 'force_recon', \n\n    // --- Combat Recons (D-Scan Immune) ---\n    'huginn': 'combat_recon',\n    'rook': 'combat_recon',\n    'curse': 'combat_recon',\n    'lachesis': 'combat_recon',\n\n    // --- Logistics Cruisers (Safety Net) ---\n    'basilisk': 'logistics',\n    'scimitar': 'logistics',\n    'guardian': 'logistics',\n    'oneiros': 'logistics',\n    'etana': 'logistics', \n    'rabisu': 'logistics', \n\n    // --- Command Ships (Safety Net) ---\n    'sleipnir': 'command_ship',\n    'vulture': 'command_ship',\n    'absolution': 'command_ship',\n    'damnation': 'command_ship',\n    'claymore': 'command_ship',\n    'nighthawk': 'command_ship',\n    'astarte': 'command_ship',\n    'eos': 'command_ship',\n\n    // --- Existing Overrides ---\n    'tholos': 'tactical_destroyer', \n    'cenotaph': 'attack_battlecruiser',\n    'porpoise': 'industrial_command', \n    'orca': 'industrial_command', \n    'rorqual': 'industrial_command',\n    'mobile cynosural beacon': 'mobile_cyno', \n    'customs office': 'structure', \n    'mobile tractor unit': 'mobile_tractor_unit', \n    'mobile observatory': 'mobile_observatory',\n    'mobile small warp disruptor i': 'mobile_warp_disruptor',\n    'mobile medium warp disruptor i': 'mobile_warp_disruptor',\n    'mobile large warp disruptor i': 'mobile_warp_disruptor',\n    'skyhook': 'orbital_infrastructure',\n    \n    // --- Structures ---\n    'astrahus': 'structure',\n    'fortizar': 'structure',\n    'keepstar': 'structure',\n    'raitaru': 'structure',\n    'azbel': 'structure',\n    'sotiyo': 'structure',\n    'athanor': 'structure',\n    'tatara': 'structure'\n};\n\n// --- 3. LOGIC HELPERS ---\n\n/**\n * getBasicClass\n * Determines the broad category (e.g. Frigate, Structure) for a kill.\n * Logic: Overrides > Map Lookup > ID Range Fallbacks\n */\nfunction getBasicClass(groupId, shipName = '') {\n    const snL = (shipName || '').toLowerCase().trim();\n    \n    // 1. Name Overrides (Highest Priority)\n    for (const [key, val] of Object.entries(SHIP_NAME_TO_CLASS_OVERRIDE)) {\n        if (snL === key || snL.includes(key)) {\n            return val;\n        }\n    }\n\n    // 2. Map Lookup (Explicit IDs)\n    if (SHIP_CLASS_BASIC_MAP[groupId]) {\n        return SHIP_CLASS_BASIC_MAP[groupId];\n    }\n    \n    // 3. String Matching Fallbacks (Safe guesses)\n    if (snL.includes('standup')) return 'fighter';\n    if (snL.includes('excavator')) return 'mining_haul';\n    if (snL.includes('mobile warp disruptor')) return 'deployable';\n    if (snL.includes('capsule')) return 'capsule';\n    if (snL.includes('shuttle')) return 'shuttle';\n    if (snL.includes('metenox')) return 'structure';\n    if (snL.includes('skyhook')) return 'structure';\n    if (snL.includes('control tower')) return 'control_tower';\n    if (snL.includes('battery') || snL.includes('array') || snL.includes('assembly')) return 'starbase_structure';\n\n    // 4. GroupID Ranges (Restoration Logic - LOW PRIORITY FALLBACK)\n    if (groupId === 29) return 'capsule';\n    if (groupId >= 1404 && groupId <= 2500) return 'structure'; \n    if (groupId >= 1000 && groupId <= 1399) return 'deployable';\n    if (groupId >= 300 && groupId <= 500) return 'structure'; \n\n    return 'unknown';\n}\n\n/**\n * getDetailedClass\n * Determines the specific role (e.g. Interceptor, Citadel) for a kill.\n */\nfunction getDetailedClass(groupId, basicClass, shipName = '') {\n    const snL = (shipName || '').toLowerCase().trim();\n\n    // 1. Detailed Name Overrides (Check First)\n    for (const [key, val] of Object.entries(SHIP_NAME_TO_DETAILED_CLASS_OVERRIDE)) {\n        if (snL === key || snL.includes(key)) {\n            return val;\n        }\n    }\n\n    // 2. Basic Name Overrides (Fallback)\n    if (SHIP_NAME_TO_CLASS_OVERRIDE[snL]) {\n        return SHIP_NAME_TO_CLASS_OVERRIDE[snL];\n    }\n\n    // 3. String Match Traps (Safe overrides)\n    if (snL.includes('mobile warp disruptor')) return 'mobile_warp_disruptor';\n    if (snL.includes('mobile tractor unit')) return 'mobile_tractor_unit';\n    if (snL.includes('mobile observatory')) return 'mobile_observatory';\n    if (snL.includes('mercenary den')) return 'structure';\n    if (snL.includes('skyhook')) return 'orbital_infrastructure';\n\n    // 4. Faction Ship Detection (Navy/Pirate variants)\n    if (snL.includes(' navy ') || snL.includes('navy issue')) {\n        if (basicClass === 'frigate') return 'faction_frigate';\n        if (basicClass === 'cruiser') return 'faction_cruiser';\n        if (basicClass === 'battlecruiser') return 'faction_battlecruiser';\n        if (basicClass === 'battleship') return 'faction_battleship';\n    }\n    const pirateFactions = ['angel', 'blood', 'guristas', 'mordus', 'sansha', 'serpentis', 'soct', 'kikimora', 'draugur', 'ikiheurs', 'leshak'];\n    if (pirateFactions.some(faction => snL.includes(faction))) {\n        if (basicClass === 'frigate') return 'faction_frigate';\n        if (basicClass === 'cruiser') return 'faction_cruiser';\n        if (basicClass === 'battlecruiser') return 'faction_battlecruiser';\n        if (basicClass === 'battleship') return 'faction_battleship';\n    }\n\n    // 5. Map Lookup\n    if (SHIP_CLASS_DETAILED_MAP[groupId]) {\n        return SHIP_CLASS_DETAILED_MAP[groupId];\n    }\n\n    return basicClass;\n}\n\n/**\n * getSpaceType (v2.0 - Pochven Support)\n * Determines if a system is Highsec, Lowsec, Null, WH, Pochven, or Abyssal.\n * \n * @param {number} security - System security status\n * @param {number} systemId - Solar system ID\n * @param {string} systemName - Solar system name\n * @param {number} regionId - Region ID (used for Pochven detection)\n * @returns {string} - Space type identifier\n */\nfunction getSpaceType(security, systemId, systemName, regionId) {\n    // 1. Abyssal Detection (system name starts with AD)\n    if (systemName && systemName.startsWith('AD')) {\n        return 'abyssal';\n    }\n    \n    // 2. Wormhole Detection (J-space system ID range)\n    if (systemId >= 31000000 && systemId < 32000000) {\n        return 'wormhole';\n    }\n    \n    // 3. Pochven Detection (region ID 10000070)\n    if (regionId === POCHVEN_REGION_ID) {\n        return 'pochven';\n    }\n    \n    // 4. K-Space Security-based Classification\n    if (Math.round(parseFloat(security) * 10) / 10 >= 0.5) {\n        return 'highsec';\n    }\n    if (security > 0.0) {\n        return 'lowsec';\n    }\n    \n    return 'nullsec';\n}\n\n/**\n * isNPC (Strict Version)\n * Determines if an entity is an NPC based on IDs.\n */\nfunction isNPC(charId, corpId, allianceId, factionId) {\n    const cId = parseInt(charId || 0, 10);\n    const coId = parseInt(corpId || 0, 10);\n\n    if (cId === 0) return true; \n    if (coId === 1000133) return true; \n    if (cId >= 3000000 && cId <= 4000000) return true; \n\n    return false; \n}\n\nfunction checkAbyssal(shipName, corpId) {\n    if (shipName === 'Unstable Abyssal Depths' || parseInt(corpId) === 1000133) {\n        return { \n            name: 'The Abyss', \n            corp: 'Environmental' \n        };\n    }\n    return null;\n}\n\nfunction getName(id, resolvedNames, def = 'Unknown') {\n    const name = resolvedNames.get(parseInt(id));\n    if (!name || name.startsWith('RETRY:')) {\n        return `${def} (${id})`;\n    }\n    return name;\n}\n\nfunction getFleetSize(attackerCount) {\n    if (attackerCount <= 1) return 'solo';\n    if (attackerCount <= 5) return 'small';\n    if (attackerCount <= 20) return 'medium';\n    return 'large';\n}\n\nfunction getNPCDisplayName(characterId, shipTypeName, corporationId) {\n    if (shipTypeName === 'Unstable Abyssal Depths' || parseInt(corporationId) === 1000133) {\n        return 'The Abyss';\n    }\n    return 'NPC';\n}\n\n/**\n * estimateBlueprintValue\n * Complex valuation logic for BPO vs BPC.\n */\nfunction estimateBlueprintValue(itemTypeId, singleton, quantity, groupId) {\n    if (singleton === 0) return 0;\n    \n    let baseValue = 0;\n    \n    if (singleton === 1) { \n        if (groupId === 9) {\n            if (itemTypeId >= 11567 && itemTypeId <= 12203) baseValue = 25000000000;\n            else if (itemTypeId >= 23757 && itemTypeId <= 23919) baseValue = 150000000000;\n            else if ([639, 643, 645, 647].includes(itemTypeId)) baseValue = 500000000;\n            else if ([624, 626, 628].includes(itemTypeId)) baseValue = 200000000;\n            else if ([11568, 11569, 11572, 11578].includes(itemTypeId)) baseValue = 30000000000;\n            else if ([23913, 23915, 23917, 23919].includes(itemTypeId)) baseValue = 200000000000;\n            else if ([23757, 23773, 23911, 23915].includes(itemTypeId)) baseValue = 100000000000;\n            else baseValue = 50000000;\n        } \n        else if ([10, 18].includes(groupId)) baseValue = 5000000;\n        else if (groupId === 13) baseValue = 2000000;\n        else baseValue = 10000000;\n    } \n    else if (singleton === 2) { \n        baseValue = groupId === 9 ? 100000 : 1000000;\n    }\n    \n    return baseValue * quantity;\n}\n\n// --- 5. INFRASTRUCTURE & REDIS ---\n\nasync function connectRedis() {\n    console.log('[Indexer] Connecting to Redis...');\n    for (let i = 0; i < MAX_RETRIES; i++) {\n        try {\n            const client = new Redis(REDIS_CONFIG);\n            await new Promise((resolve, reject) => {\n                client.on('ready', resolve);\n                client.on('error', (err) => { client.quit(); reject(err); });\n            });\n            console.log(`[Indexer] Connected on attempt ${i + 1}`);\n            return client;\n        } catch (e) {\n            console.warn(`[Indexer] Connection failed (Attempt ${i + 1}/${MAX_RETRIES})`);\n            if (i === MAX_RETRIES - 1) throw e;\n            await new Promise(r => setTimeout(r, 2000));\n        }\n    }\n}\n\n// --- 6. MAIN EXECUTION ---\n\nreturn (async () => {\n    let redisClient;\n    const debugProcessedKills = [];\n    const stats = {\n        total: 0,\n        bySpaceType: {},\n        regionsFound: new Set(),\n        regionNamesResolved: 0\n    };\n    \n    try {\n        const inputData = $input.first().json;\n        if (!inputData?.killmail_id_map) {\n            return [{ json: { error: 'No killmail map found', processed: 0 } }];\n        }\n\n        const kmMap = new Map(Object.entries(inputData.killmail_id_map));\n        if (kmMap.size === 0) return [{ json: { processed: 0, message: 'Empty map' } }];\n\n        console.log(`[Indexer] Processing batch of ${kmMap.size} killmails...`);\n\n        const resolvedNamesMap = new Map(\n            Object.entries(inputData.resolved_names || {}).map(([id, n]) => [parseInt(id), n])\n        );\n        \n        redisClient = await connectRedis();\n        const dataPipeline = redisClient.pipeline();\n        const statsPipeline = redisClient.pipeline();\n\n        // 6.1. BULK DATA PRE-FETCH\n        const typeIds = new Set(), sysIds = new Set();\n        for (const km of kmMap.values()) {\n            sysIds.add(km.solar_system_id);\n            if (km.victim?.ship_type_id) {\n                typeIds.add(km.victim.ship_type_id);\n            }\n            if (km.victim?.items) {\n                km.victim.items.forEach(i => typeIds.add(i.item_type_id));\n            }\n            if (km.attackers) {\n                km.attackers.forEach(a => {\n                    if (a.ship_type_id) typeIds.add(a.ship_type_id);\n                });\n            }\n        }\n\n        const sysIdsArray = Array.from(sysIds).map(String);\n        const typeIdsArray = Array.from(typeIds).map(String);\n\n        console.log(`[Indexer] Fetching data for ${sysIdsArray.length} systems, ${typeIdsArray.length} item types...`);\n\n        const [sysRes, typeRes, priceRes] = await Promise.all([\n            sysIdsArray.length > 0 ? redisClient.hmget('eve:system_details', ...sysIdsArray) : Promise.resolve([]),\n            typeIdsArray.length > 0 ? redisClient.hmget('eve:item_classification', ...typeIdsArray) : Promise.resolve([]),\n            typeIdsArray.length > 0 ? redisClient.hmget('eve:market:prices', ...typeIdsArray) : Promise.resolve([])\n        ]);\n\n        const systemMap = new Map(sysIdsArray.map((id, i) => [parseInt(id), sysRes[i] ? JSON.parse(sysRes[i]) : {}]));\n        const groupMap = new Map(typeIdsArray.map((id, i) => [parseInt(id), typeRes[i] ? JSON.parse(typeRes[i]).groupID : 0]));\n        const priceMap = new Map(typeIdsArray.map((id, i) => [parseInt(id), priceRes[i] ? (JSON.parse(priceRes[i]).average_price || 0) : 0]));\n\n        // 6.1.1. COLLECT UNIQUE REGION IDs FOR NAME RESOLUTION\n        const regionIds = new Set();\n        for (const sys of systemMap.values()) {\n            if (sys.regionID) {\n                regionIds.add(sys.regionID);\n            }\n        }\n\n        // 6.1.2. FETCH REGION NAMES\n        const regionIdsArray = Array.from(regionIds).map(String);\n        let regionNameMap = new Map();\n        \n        if (regionIdsArray.length > 0) {\n            console.log(`[Indexer] Fetching names for ${regionIdsArray.length} unique regions...`);\n            const regionNamesRaw = await redisClient.hmget('eve:id_to_name', ...regionIdsArray);\n            \n            regionIdsArray.forEach((id, i) => {\n                const name = regionNamesRaw[i];\n                if (name && !name.startsWith('RETRY:')) {\n                    regionNameMap.set(parseInt(id), name);\n                    stats.regionNamesResolved++;\n                }\n            });\n            \n            console.log(`[Indexer] Resolved ${stats.regionNamesResolved} region names`);\n        }\n\n        const itemClassificationMap = new Map();\n        if (typeIds.size > 0) {\n            const itemClassJson = await redisClient.hmget('eve:item_classification', ...Array.from(typeIds).map(String));\n            Array.from(typeIds).forEach((id, i) => {\n                if (itemClassJson[i]) {\n                    itemClassificationMap.set(id, JSON.parse(itemClassJson[i]));\n                }\n            });\n        }\n\n        // 6.2. ENRICHMENT LOOP\n        for (const [killIdStr, km] of kmMap.entries()) {\n            const killId = parseInt(killIdStr);\n            const zScore = Math.floor(new Date(km.killmail_time).getTime() / 1000);\n            const enriched = { ...km };\n            \n            if (!enriched.zkb_hash && km?.package?.zkb?.hash) {\n                enriched.zkb_hash = String(km.package.zkb.hash);\n            }\n            \n            const v = enriched.victim;\n            \n            // --- Geographic Metadata (ENHANCED) ---\n            const sys = systemMap.get(km.solar_system_id) || { security: 0 };\n            enriched.solar_system_name = getName(km.solar_system_id, resolvedNamesMap, 'System');\n            enriched.region_id = sys.regionID || null;\n            enriched.constellation_id = sys.constellationID || null;\n            \n            // NEW: Add region_name to enriched kill\n            if (enriched.region_id && regionNameMap.has(enriched.region_id)) {\n                enriched.region_name = regionNameMap.get(enriched.region_id);\n            } else {\n                enriched.region_name = enriched.region_id ? `Region (${enriched.region_id})` : null;\n            }\n            \n            // UPDATED: Pass regionId to getSpaceType for Pochven detection\n            enriched.space_type = getSpaceType(sys.security, km.solar_system_id, enriched.solar_system_name, enriched.region_id);\n            \n            // Track stats\n            stats.total++;\n            stats.bySpaceType[enriched.space_type] = (stats.bySpaceType[enriched.space_type] || 0) + 1;\n            if (enriched.region_id) stats.regionsFound.add(enriched.region_id);\n\n            // --- Victim Metadata ---\n            v.ship_type_name = getName(v.ship_type_id, resolvedNamesMap, 'Ship');\n            v.is_npc = isNPC(v.character_id, v.corporation_id, v.alliance_id, v.faction_id);\n            v.character_name = v.character_id ? getName(v.character_id, resolvedNamesMap) : (v.is_npc ? 'NPC' : 'Player Asset');\n            v.corporation_name = getName(v.corporation_id, resolvedNamesMap, 'Corp');\n            v.alliance_name = getName(v.alliance_id, resolvedNamesMap, 'None');\n\n            // --- Attacker Metadata ---\n            const playerAttackers = (enriched.attackers || []).filter(a => !isNPC(a.character_id, a.corporation_id, a.alliance_id, a.faction_id));\n            enriched.is_solo = playerAttackers.length === 1;\n            enriched.fleet_size = getFleetSize(playerAttackers.length);\n            \n            if (enriched.attackers) {\n                enriched.attackers.forEach(a => {\n                    a.ship_type_name = getName(a.ship_type_id, resolvedNamesMap, 'Ship');\n                    a.is_npc = isNPC(a.character_id, a.corporation_id, a.alliance_id, a.faction_id);\n                    \n                    const abyssCheck = checkAbyssal(a.ship_type_name, a.corporation_id);\n                    if (abyssCheck) {\n                        a.character_name = abyssCheck.name;\n                        a.corporation_name = abyssCheck.corp;\n                        a.is_npc = true;\n                    } else if (a.is_npc) {\n                        a.character_name = getNPCDisplayName(a.character_id, a.ship_type_name, a.corporation_id);\n                        a.corporation_name = getName(a.corporation_id, resolvedNamesMap, 'Unknown Corp');\n                    } else {\n                        a.character_name = getName(a.character_id, resolvedNamesMap);\n                        a.corporation_name = getName(a.corporation_id, resolvedNamesMap);\n                    }\n                    \n                    a.alliance_name = getName(a.alliance_id, resolvedNamesMap, 'None');\n                    a.weapon_type_name = getName(a.weapon_type_id, resolvedNamesMap, 'Weapon');\n                    \n                    const agId = groupMap.get(a.ship_type_id) || 0;\n                    a.ship_class = getBasicClass(agId, a.ship_type_name);\n                    a.ship_class_detailed = getDetailedClass(agId, a.ship_class, a.ship_type_name);\n                });\n            }\n\n            // --- Dual Classification ---\n            const gId = groupMap.get(v.ship_type_id) || 0;\n            enriched.victim_ship_class = getBasicClass(gId, v.ship_type_name);\n            enriched.victim_ship_class_detailed = getDetailedClass(gId, enriched.victim_ship_class, v.ship_type_name);\n            \n            // --- Value Calculation ---\n            let shipVal = priceMap.get(v.ship_type_id) || 0;\n            let destroyedVal = 0, droppedVal = 0;\n\n            if (v.items) {\n                v.items.forEach(i => {\n                    i.item_type_name = getName(i.item_type_id, resolvedNamesMap, 'Item');\n                    const qtyDes = i.quantity_destroyed || 0;\n                    const qtyDrop = i.quantity_dropped || 0;\n                    const totalQty = qtyDes + qtyDrop;\n                    \n                    let itemVal = 0;\n                    if (i.singleton > 0) {\n                        const cls = itemClassificationMap.get(i.item_type_id);\n                        itemVal = estimateBlueprintValue(i.item_type_id, i.singleton, totalQty, cls?.groupID || 0);\n                    } else {\n                        itemVal = (priceMap.get(i.item_type_id) || 0) * totalQty;\n                    }\n\n                    if (totalQty > 0) {\n                        const ratio = qtyDes / totalQty;\n                        destroyedVal += itemVal * ratio;\n                        droppedVal += itemVal * (1 - ratio);\n                    }\n                });\n            }\n\n            enriched.ship_value = shipVal;\n            enriched.destroyed_value = destroyedVal;\n            enriched.dropped_value = droppedVal;\n            enriched.total_value = shipVal + destroyedVal + droppedVal;\n            \n            // --- Time Metadata ---\n            const killDate = new Date(km.killmail_time);\n            enriched.kill_hour = killDate.getUTCHours();\n            enriched.kill_day = killDate.getUTCDay();\n\n            // 6.3. REDIS INDEXING\n            \n            // Core Data\n            dataPipeline.hset('intel:kill:data', killIdStr, JSON.stringify(enriched));\n            dataPipeline.zadd('intel:kills:all', zScore, killIdStr);\n            dataPipeline.zadd('intel:kills:24h_stats', zScore, killIdStr);\n            \n            // Classes\n            dataPipeline.zadd(`intel:losses:ship_class:${enriched.victim_ship_class}`, zScore, killIdStr);\n            dataPipeline.zadd(`intel:losses:ship_class_detailed:${enriched.victim_ship_class_detailed}`, zScore, killIdStr);\n            \n            // ISK\n            let valKey = 'sub10m';\n            if (enriched.total_value >= 50e9) valKey = '50b';\n            else if (enriched.total_value >= 20e9) valKey = '20b-50b';\n            else if (enriched.total_value >= 10e9) valKey = '10b-20b';\n            else if (enriched.total_value >= 1e9) valKey = '1b-10b';\n            else if (enriched.total_value >= 100e6) valKey = '100m-1b';\n            else if (enriched.total_value >= 10e6) valKey = '10m-100m';\n            dataPipeline.zadd(`intel:kills:isk:${valKey}`, zScore, killIdStr);\n\n            // Geo (INCLUDES POCHVEN NOW)\n            dataPipeline.zadd(`intel:kills:space:${enriched.space_type}`, zScore, killIdStr);\n            dataPipeline.zadd(`intel:kills:system:${km.solar_system_id}`, zScore, killIdStr);\n            if (enriched.region_id) dataPipeline.zadd(`intel:kills:region:${enriched.region_id}`, zScore, killIdStr);\n            if (enriched.constellation_id) dataPipeline.zadd(`intel:kills:constellation:${enriched.constellation_id}`, zScore, killIdStr);\n\n            // Time & Fleet\n            dataPipeline.zadd(`intel:kills:hour:${enriched.kill_hour}`, zScore, killIdStr);\n            dataPipeline.zadd(`intel:kills:day:${enriched.kill_day}`, zScore, killIdStr);\n            dataPipeline.zadd(`intel:kills:fleet:${enriched.fleet_size}`, zScore, killIdStr);\n\n            // NPC & Weapon\n            const fbAttacker = (enriched.attackers || []).find(a => a.final_blow);\n            if (fbAttacker && fbAttacker.is_npc) {\n                dataPipeline.zadd('intel:kills:npc', zScore, killIdStr);\n            }\n            if (fbAttacker && fbAttacker.weapon_type_id) {\n                dataPipeline.zadd(`intel:kills:weapon:${fbAttacker.weapon_type_id}`, zScore, killIdStr);\n            }\n\n            // Tracking\n            const involvedAids = new Set();\n            if (v.alliance_id) involvedAids.add(v.alliance_id);\n            (enriched.attackers || []).forEach(a => { if (a.alliance_id) involvedAids.add(a.alliance_id); });\n\n            for (const aid of involvedAids) {\n                dataPipeline.zadd(`intel:followed:alliance:${aid}`, zScore, killIdStr);\n            }\n\n            // VS/Brawl Mode: Alliance interaction tracking\n            if (v.alliance_id) {\n                const victimAllianceId = v.alliance_id;\n                const attackerAllianceIds = new Set();\n                (enriched.attackers || []).forEach(a => {\n                    if (a.alliance_id && a.alliance_id !== victimAllianceId) {\n                        attackerAllianceIds.add(a.alliance_id);\n                    }\n                });\n\n                for (const attackerAid of attackerAllianceIds) {\n                    dataPipeline.zadd(`intel:interaction:${attackerAid}:${victimAllianceId}`, zScore, killIdStr);\n                    dataPipeline.zadd(`intel:interaction:${victimAllianceId}:${attackerAid}`, zScore, killIdStr);\n                }\n            }\n\n            // Global Stats\n            if (v.alliance_id) {\n                dataPipeline.zadd(`intel:losses:alliance:${v.alliance_id}`, zScore, killIdStr);\n                statsPipeline.hincrby(`${ALLIANCE_STATS_KEY}${v.alliance_id}`, 'loss_count_total', 1);\n                statsPipeline.hincrbyfloat(`${ALLIANCE_STATS_KEY}${v.alliance_id}`, 'value_lost', enriched.total_value);\n                dataPipeline.zadd(`intel:stats:alliance:losses_by_value:${v.alliance_id}`, enriched.total_value, killIdStr);\n                statsPipeline.zadd(ALLIANCE_ACTIVITY_KEY, 'GT', zScore, v.alliance_id);\n                if (v.character_id) statsPipeline.zadd(`${ALLIANCE_PILOTS_PREFIX}${v.alliance_id}`, 'GT', zScore, v.character_id);\n                const victimGroupId = groupMap.get(v.ship_type_id) || 0;\n                if (v.ship_type_name && v.ship_type_id && !EXCLUDED_TOP_SHIP_GROUPS.has(victimGroupId)) {\n                    statsPipeline.zincrby(`${ALLIANCE_SHIPS_PREFIX}${v.alliance_id}`, 1, `${v.ship_type_id}:${v.ship_type_name}`);\n                }\n            }\n            if (v.character_id && !v.is_npc) {\n                dataPipeline.zadd(`intel:losses:character:${v.character_id}`, zScore, killIdStr);\n            }\n            if (v.corporation_id) {\n                dataPipeline.zadd(`intel:losses:corporation:${v.corporation_id}`, zScore, killIdStr);\n            }\n            if (v.ship_type_id) {\n                dataPipeline.zadd(`intel:losses:ship:${v.ship_type_id}`, zScore, killIdStr);\n            }\n            \n            (enriched.attackers || []).forEach(a => {\n                if (a.alliance_id) {\n                    dataPipeline.zadd(`intel:kills:alliance:${a.alliance_id}`, zScore, killIdStr);\n                    statsPipeline.hincrby(`${ALLIANCE_STATS_KEY}${a.alliance_id}`, 'kill_count_total', 1);\n                    statsPipeline.hincrbyfloat(`${ALLIANCE_STATS_KEY}${a.alliance_id}`, 'value_destroyed', enriched.total_value / enriched.attackers.length);\n                    dataPipeline.zadd(`intel:stats:alliance:kills_by_value:${a.alliance_id}`, enriched.total_value, killIdStr);\n                    statsPipeline.zadd(ALLIANCE_ACTIVITY_KEY, 'GT', zScore, a.alliance_id);\n                    if (a.character_id) statsPipeline.zadd(`${ALLIANCE_PILOTS_PREFIX}${a.alliance_id}`, 'GT', zScore, a.character_id);\n                    const attackerGroupId = groupMap.get(a.ship_type_id) || 0;\n                    if (a.ship_type_name && a.ship_type_id && !EXCLUDED_TOP_SHIP_GROUPS.has(attackerGroupId)) {\n                        statsPipeline.zincrby(`${ALLIANCE_SHIPS_PREFIX}${a.alliance_id}`, 1, `${a.ship_type_id}:${a.ship_type_name}`);\n                    }\n\n                    if (a.final_blow) {\n                        dataPipeline.zadd(`intel:kills:alliance:final:${a.alliance_id}`, zScore, killIdStr);\n                        statsPipeline.hincrby(`${ALLIANCE_STATS_KEY}${a.alliance_id}`, 'kill_final_count', 1);\n                    } else {\n                        dataPipeline.zadd(`intel:kills:alliance:assist:${a.alliance_id}`, zScore, killIdStr);\n                        statsPipeline.hincrby(`${ALLIANCE_STATS_KEY}${a.alliance_id}`, 'kill_assist_count', 1);\n                    }\n                }\n                if (a.character_id && !a.is_npc) {\n                    dataPipeline.zadd(`intel:kills:character:${a.character_id}`, zScore, killIdStr);\n                    statsPipeline.hincrby(`${CHARACTER_STATS_KEY}${a.character_id}`, 'kill_count_total', 1);\n                    statsPipeline.hincrbyfloat(`${CHARACTER_STATS_KEY}${a.character_id}`, 'value_destroyed', enriched.total_value / enriched.attackers.length);\n                }\n            });\n\n            statsPipeline.hincrby(`${SYSTEM_STATS_KEY}${km.solar_system_id}`, 'kill_count_total', 1);\n            statsPipeline.hincrbyfloat(`${SYSTEM_STATS_KEY}${km.solar_system_id}`, 'value_total', enriched.total_value);\n\n            // Debug\n            debugProcessedKills.push({\n                id: killId,\n                ship: v.ship_type_name,\n                class: enriched.victim_ship_class,\n                detailedClass: enriched.victim_ship_class_detailed,\n                space_type: enriched.space_type,\n                region_id: enriched.region_id,\n                region_name: enriched.region_name,\n                value: enriched.total_value\n            });\n        }\n\n        console.log(`[Indexer] Executing Redis pipelines...`);\n        await Promise.all([dataPipeline.exec(), statsPipeline.exec()]);\n        \n        // Summary - ONLY update alliances involved in this batch\n        const batchAllianceIds = new Set();\n        for (const [killIdStr, km] of kmMap.entries()) {\n            const v = km.victim;\n            if (v?.alliance_id) batchAllianceIds.add(v.alliance_id);\n            (km.attackers || []).forEach(a => {\n                if (a.alliance_id) batchAllianceIds.add(a.alliance_id);\n            });\n        }\n\n        const activeAlliances = Array.from(batchAllianceIds).filter(id => id && id !== 0);\n\n        if (activeAlliances.length === 0) {\n            console.log('[Indexer] No alliances to update summaries for in this batch.');\n        } else {\n            console.log(`[Indexer] Updating summaries for ${activeAlliances.length} alliances from this batch.`);\n\n            const sumPipe = redisClient.pipeline();\n            const nowSec = Math.floor(Date.now() / 1000);\n            const sevenDaysAgo = nowSec - (86400 * 7);\n\n            for (const aid of activeAlliances) {\n                const allianceStats = await redisClient.hmget(`${ALLIANCE_STATS_KEY}${aid}`,\n                    'kill_count_total', 'loss_count_total', 'value_destroyed', 'value_lost',\n                    'kill_final_count', 'kill_assist_count');\n                const lastSeenScore = await redisClient.zscore(ALLIANCE_ACTIVITY_KEY, aid);\n                const pilotsKey = `${ALLIANCE_PILOTS_PREFIX}${aid}`;\n                await redisClient.zremrangebyscore(pilotsKey, '-inf', sevenDaysAgo);\n                const activePilots = await redisClient.zcard(pilotsKey);\n                const shipsKey = `${ALLIANCE_SHIPS_PREFIX}${aid}`;\n                const topShipsRaw = await redisClient.zrevrange(shipsKey, 0, 0);\n\n                let topShipName = '-';\n                let topShipId = '';\n                if (topShipsRaw[0]) {\n                    const colonIdx = topShipsRaw[0].indexOf(':');\n                    if (colonIdx > 0) {\n                        topShipId = topShipsRaw[0].substring(0, colonIdx);\n                        topShipName = topShipsRaw[0].substring(colonIdx + 1);\n                    } else {\n                        topShipName = topShipsRaw[0];\n                    }\n                }\n\n                const maxKillIds = await redisClient.zrevrange(`intel:stats:alliance:kills_by_value:${aid}`, 0, 0);\n                const maxLossIds = await redisClient.zrevrange(`intel:stats:alliance:losses_by_value:${aid}`, 0, 0);\n\n                const [k, l, vd, vl, kf, ka] = allianceStats.map(Number);\n                const efficiency = (vd + vl) > 0 ? (vd / (vd + vl) * 100) : 0;\n                const ratio = l > 0 ? (k / l) : k;\n\n                sumPipe.hset(`${ALLIANCE_SUMMARY_KEY}${aid}`,\n                    'kills', k || 0,\n                    'losses', l || 0,\n                    'iskDestroyed', (vd || 0).toFixed(0),\n                    'iskLost', (vl || 0).toFixed(0),\n                    'efficiency', efficiency.toFixed(1),\n                    'ratio', ratio.toFixed(2),\n                    'activePilots', activePilots || 0,\n                    'lastSeen', lastSeenScore ? (lastSeenScore * 1000) : 0,\n                    'topShip', topShipName,\n                    'topShipId', topShipId,\n                    'maxKillId', maxKillIds[0] || '',\n                    'maxLossId', maxLossIds[0] || '',\n                    'killsFinal', kf || 0,\n                    'killsAssist', ka || 0\n                );\n            }\n            await sumPipe.exec();\n        }\n\n        // Final logging\n        console.log(`[Indexer] ========== BATCH COMPLETE ==========`);\n        console.log(`[Indexer] Total Kills Processed: ${stats.total}`);\n        console.log(`[Indexer] Space Type Breakdown:`);\n        for (const [spaceType, count] of Object.entries(stats.bySpaceType)) {\n            console.log(`[Indexer]   - ${spaceType}: ${count}`);\n        }\n        console.log(`[Indexer] Unique Regions: ${stats.regionsFound.size}`);\n        console.log(`[Indexer] Region Names Resolved: ${stats.regionNamesResolved}`);\n        console.log(`[Indexer] ======================================`);\n\n        return [{ json: { \n            processed: kmMap.size, \n            status: 'success',\n            stats: {\n                total: stats.total,\n                bySpaceType: stats.bySpaceType,\n                uniqueRegions: stats.regionsFound.size,\n                regionNamesResolved: stats.regionNamesResolved\n            },\n            debug_kills: debugProcessedKills \n        }}];\n        \n    } catch (err) {\n        console.error(`[Indexer] CRITICAL ERROR: ${err.message}`);\n        console.error(err.stack);\n        return [{ json: { \n            status: 'error',\n            message: err.message,\n            stack: err.stack,\n            debug_kills: debugProcessedKills \n        }}];\n    } finally {\n        if (redisClient) await redisClient.quit();\n    }\n})();\n"
+      },
+      "id": "f58b51c5-bdea-429c-8f7e-41b4adbf1479",
+      "name": "5. Redis Processing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://esi.evetech.net/latest/universe/names/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Alfred-Intel-Bot/1.3 (Killmail Poller)"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.missing_ids) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1000
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -48,
+        -208
+      ],
+      "id": "3940e531-4d14-4309-87cf-b5c8b22c7654",
+      "name": "3. Fetch Missing Names",
+      "retryOnFail": true,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Node: Dashboard Backend (Data Fetcher) - Multi-Alliance Production\n * Version: 13.2 (Deep Search + New Classes)\n * * Features:\n * - Multi-Alliance Tracking: Accepts CSV 'alliance_id' and returns 'alliance_stats' dict.\n * - Dual-Layer Index Routing: Routes detailed ship types to specialized Redis keys.\n * - Full 30d Global Context: Calculates Heatmap & ISK Distribution on every run.\n * - Deep Search: Iteratively scans history to fill the feed when filters are active.\n */\n\nconst Redis = require('ioredis');\n\n// --- INPUT PARSING ---\n// Access input data based on n8n version\nconst inputData = $input ? $input.first().json : items[0].json;\nconst params = inputData.query || {};\n\n// --- CONFIGURATION ---\nconst REDIS_CONFIG = { \n    host: 'redis', \n    port: 6379, \n    db: 0, \n    connectTimeout: 5000, \n    maxRetriesPerRequest: 2 \n};\nconst FETCH_LIMIT = parseInt(params.limit) || 50; \nconst DEEP_SEARCH_LIMIT = 200; // Max iterations for deep search\nconst STATS_WINDOW_DAYS = 30;\n\n// --- REDIS KEYS ---\nconst KEY_KILLS_ALL = 'intel:kills:all';\nconst KEY_KILLS_NPC = 'intel:kills:npc';\nconst KEY_KILL_DATA = 'intel:kill:data';\nconst KEY_CACHED_STATS = 'intel:cached:stats';\nconst KEY_CACHED_TRENDS = 'intel:cached:trends';\n\n// --- PARSE PARAMETERS ---\nconst latestKnownId = params.latest_known_id ? String(params.latest_known_id) : null;\nconst beforeKillId = params.before_kill_id ? String(params.before_kill_id) : null;\n\n// Multi-Alliance Support: Parse CSV\nconst allianceIdParam = params.alliance_id ? String(params.alliance_id) : null;\nconst allianceIdsArr = allianceIdParam ? allianceIdParam.split(',').map(s => s.trim()).filter(Boolean) : [];\nconst allianceIds = new Set(allianceIdsArr);\n\n// Sets for O(1) lookups\nconst filtersMain = new Set(params.filters_main ? params.filters_main.split(',') : []);\nconst filtersSpace = new Set(params.filters_space ? params.filters_space.split(',') : []);\nconst filtersIsk = new Set(params.filters_isk ? params.filters_isk.split(',') : []);\nconst filtersShip = new Set(params.filters_ship ? params.filters_ship.split(',') : []);\nconst searchQuery = (params.search_query || '').toLowerCase().trim();\n\nconst redis = new Redis(REDIS_CONFIG);\n\n// --- GLOBAL VARIABLES ---\nlet finalKills = [];\nlet total_count = 0;\nlet stats_24h = { kills: 0, isk: 0 };\nlet trends = {};\nlet isk_distribution = {}; \nlet activity_heatmap = {};\nlet oldest_kill_id_for_client = null;\nlet allianceStatsDict = {}; // Keyed by Alliance ID\nlet allianceSummary = null; // Legacy support\nlet latest_db_killmail_time = null;\n\n// --- DETAILED CLASSES LIST ---\n// Fully unpacked for readability and maintenance\nconst DETAILED_CLASSES_SET = new Set([\n    // --- Frigates ---\n    'interceptor',\n    'assault_frigate',\n    'covert_ops',\n    'stealth_bomber',\n    'electronic_attack',\n    'logistics_frigate',\n    'mining_frigate',\n    'expedition_frigate',\n    'rookie_ship',\n\n    // --- Destroyers ---\n    'interdictor',\n    'command_destroyer',\n    'tactical_destroyer',\n    'logistics_destroyer',\n\n    // --- Cruisers ---\n    'heavy_assault',\n    'logistics',\n    'force_recon',\n    'combat_recon',\n    'command_ship',\n    'strategic_cruiser',\n    'flag_cruiser',\n\n    // --- Battlecruisers ---\n    'attack_battlecruiser',\n    'battlecruiser',\n\n    // --- Battleships ---\n    'marauder',\n    'black_ops',\n    'battleship',\n\n    // --- Capitals ---\n    'lancer_dreadnought',\n    'force_auxiliary',\n    'supercarrier',\n    'titan',\n    'capital_industrial',\n\n    // --- Industrial ---\n    'blockade_runner',\n    'deep_space_transport',\n    'mining_barge',\n    'exhumer',\n    'jump_freighter',\n    'industrial_command',\n    'hauler',\n    'freighter',\n    'industrial_base',\n\n    // --- Fighters ---\n    'light_fighter',\n    'heavy_fighter',\n\n    // --- Structures ---\n    'control_tower',\n    'starbase_structure',\n    'sentry_gun',\n    'orbital_infrastructure',\n\n    // --- Deployables ---\n    'mobile_cyno',\n    'mobile_warp_disruptor',\n    'mobile_tractor_unit',\n    'mobile_observatory'\n]);\n\n// --- FILTER FUNCTION ---\nfunction filterKill(kill) {\n    // 1. Alliance Filter (Multi-ID Support)\n    if (allianceIds.size > 0) {\n        const victimAllianceId = String(kill.victim?.alliance_id || '0');\n        const attackerAllianceIds = new Set(kill.attackers.map(a => String(a.alliance_id || '0')));\n        \n        const victimMatch = allianceIds.has(victimAllianceId);\n        const attackerMatch = [...attackerAllianceIds].some(id => allianceIds.has(id));\n        \n        if (!victimMatch && !attackerMatch) return false;\n    }\n    \n    // 2. Main Filters\n    if (filtersMain.size > 0) {\n        if (filtersMain.has('solo') && !kill.is_solo) {\n            return false;\n        }\n        \n        if (filtersMain.has('npc')) {\n            const finalBlow = kill.attackers.find(a => a.final_blow);\n            if (!finalBlow || !finalBlow.is_npc) {\n                return false;\n            }\n        }\n        \n        // Hide Pods\n        if (filtersMain.has('hide-pods') && (kill.victim_ship_class === 'capsule')) {\n            return false;\n        }\n        \n        // Hide Structures\n        if (filtersMain.has('hide-structures')) {\n            const basic = kill.victim_ship_class || '';\n            const detailed = kill.victim_ship_class_detailed || '';\n            \n            if (['structure', 'pos'].includes(basic)) {\n                return false;\n            }\n            if (['control_tower', 'starbase_structure', 'sentry_gun', 'deployable', 'mobile_cyno', 'customs_office', 'fighter', 'orbital_infrastructure'].includes(detailed)) {\n                return false;\n            }\n        }\n        \n        // Hide Trash\n        if (filtersMain.has('hide-trash') && ['rookie_ship', 'shuttle'].includes(kill.victim_ship_class)) {\n            return false;\n        }\n    }\n\n    // 3. Space Filters\n    if (filtersSpace.size > 0) {\n        const spaceType = kill.space_type || 'unknown';\n        let matchesSpace = false;\n        \n        if (filtersSpace.has('hs') && spaceType === 'highsec') {\n            matchesSpace = true;\n        }\n        if (filtersSpace.has('ls') && spaceType === 'lowsec') {\n            matchesSpace = true;\n        }\n        if (filtersSpace.has('ns') && spaceType === 'nullsec') {\n            matchesSpace = true;\n        }\n        if (filtersSpace.has('wh') && spaceType === 'wormhole') {\n            matchesSpace = true;\n        }\n        if (filtersSpace.has('ab') && spaceType === 'abyssal') {\n            matchesSpace = true;\n        }\n        \n        if (!matchesSpace) {\n            return false;\n        }\n    }\n\n    // 4. ISK Filters\n    if (filtersIsk.size > 0) {\n        const value = Number(kill.total_value) || 0;\n        let matchesIsk = false;\n        \n        if (filtersIsk.has('sub10m') && value < 10000000) {\n            matchesIsk = true;\n        }\n        if (filtersIsk.has('10m-100m') && value >= 10000000 && value < 100000000) {\n            matchesIsk = true;\n        }\n        if (filtersIsk.has('100m-1b') && value >= 100000000 && value < 1000000000) {\n            matchesIsk = true;\n        }\n        if (filtersIsk.has('1b-10b') && value >= 1000000000 && value < 10000000000) {\n            matchesIsk = true;\n        }\n        if (filtersIsk.has('10b-20b') && value >= 10000000000 && value < 20000000000) {\n            matchesIsk = true;\n        }\n        if (filtersIsk.has('20b-50b') && value >= 20000000000 && value < 50000000000) {\n            matchesIsk = true;\n        }\n        if (filtersIsk.has('50b') && value >= 50000000000) {\n            matchesIsk = true;\n        }\n        \n        if (!matchesIsk) {\n            return false;\n        }\n    }\n\n    // 5. Ship Filters (Dual-Layer Support)\n    if (filtersShip.size > 0) {\n        const basic = kill.victim_ship_class;\n        const detailed = kill.victim_ship_class_detailed;\n\n        const matchBasic = basic && filtersShip.has(basic);\n        const matchDetailed = detailed && filtersShip.has(detailed);\n\n        if (!matchBasic && !matchDetailed) {\n            return false;\n        }\n    }\n\n    // 6. Search Logic\n    if (searchQuery.length > 0) {\n        const searchTerms = searchQuery.toLowerCase().split(' ').filter(t => t.length > 0);\n        \n        const fields = [\n            kill.killmail_id,\n            kill.solar_system_name,\n            kill.victim?.character_name,\n            kill.victim?.corporation_name,\n            kill.victim?.alliance_name,\n            kill.victim?.ship_type_name,\n            kill.victim_ship_class,\n            kill.victim_ship_class_detailed\n        ];\n\n        (kill.attackers || []).forEach(a => {\n            fields.push(\n                a.character_name,\n                a.corporation_name,\n                a.alliance_name,\n                a.ship_type_name\n            );\n        });\n\n        const searchableText = fields.filter(Boolean).join(' ').toLowerCase();\n\n        return searchTerms.every(term => searchableText.includes(term));\n    }\n    \n    return true;\n}\n\n// --- MAIN EXECUTION ---\nreturn (async () => {\n    try {\n        // ---------------------------------------------------------\n        // 1. INTELLIGENT INDEX SELECTION\n        // ---------------------------------------------------------\n        let sourceKeys = [];\n\n        // STRATEGY: Union keys from the MOST SPECIFIC filter category active.\n        // Priority: Alliance > Ship > NPC > ISK > Space > All\n        // We do NOT union across categories (e.g. Alliance + Ship) because Redis intersection is expensive/complex here.\n        // Instead, we pick the category that likely has the smallest dataset and filter the rest in memory.\n\n        if (allianceIds.size > 0) {\n            allianceIds.forEach(id => {\n                sourceKeys.push(`intel:followed:alliance:${id}`);\n            });\n        }\n        else if (filtersShip.size > 0) {\n            // Ship filters are usually very specific, so they take priority over NPC/ISK/Space\n            for (const selectedClass of filtersShip) {\n                if (DETAILED_CLASSES_SET.has(selectedClass)) {\n                    sourceKeys.push(`intel:losses:ship_class_detailed:${selectedClass}`);\n                } else {\n                    sourceKeys.push(`intel:losses:ship_class:${selectedClass}`);\n                }\n            }\n        }\n        else if (filtersMain.has('npc')) {\n            sourceKeys = [KEY_KILLS_NPC];\n        }\n        else if (filtersIsk.size > 0) {\n             const iskIndexMap = {\n                'sub10m': 'intel:kills:isk:sub10m',\n                '10m-100m': 'intel:kills:isk:10m-100m',\n                '100m-1b': 'intel:kills:isk:100m-1b',\n                '1b-10b': 'intel:kills:isk:1b-10b',\n                '10b-20b': 'intel:kills:isk:10b-20b',\n                '20b-50b': 'intel:kills:isk:20b-50b',\n                '50b': 'intel:kills:isk:50b'\n            };\n            filtersIsk.forEach(f => { \n                if (iskIndexMap[f]) {\n                    sourceKeys.push(iskIndexMap[f]);\n                }\n            });\n            // If ISK filters are present but map failed (shouldn't happen), fallback to ALL\n            if (sourceKeys.length === 0) sourceKeys = [KEY_KILLS_ALL];\n        }\n        else if (filtersSpace.size > 0) {\n             const spaceMap = {\n                'hs': 'highsec',\n                'ls': 'lowsec',\n                'ns': 'nullsec',\n                'wh': 'wormhole',\n                'ab': 'abyssal'\n             };\n             // Union all selected space keys\n             filtersSpace.forEach(s => {\n                 if (spaceMap[s]) {\n                     sourceKeys.push(`intel:kills:space:${spaceMap[s]}`);\n                 }\n             });\n             if (sourceKeys.length === 0) sourceKeys = [KEY_KILLS_ALL];\n        }\n        else {\n            sourceKeys = [KEY_KILLS_ALL];\n        }\n\n        // ---------------------------------------------------------\n        // 2. FETCH KILL IDS (Optimized & Union)\n        // ---------------------------------------------------------\n        let rawIds = [];\n        \n        // SCENARIO A: LIVE UPDATE (No Loop)\n        if (latestKnownId) {\n            const allResults = [];\n            for (const sourceKey of sourceKeys) {\n                const latestTime = await redis.zscore(sourceKey, latestKnownId);\n                if (latestTime) {\n                    const ids = await redis.zrangebyscore(sourceKey, `(${latestTime}`, '+inf', 'WITHSCORES');\n                    for (let i = 0; i < ids.length; i += 2) {\n                        allResults.push({ id: ids[i], timestamp: parseFloat(ids[i + 1]) });\n                    }\n                }\n            }\n            const uniqueMap = new Map();\n            allResults.forEach(item => { if (!uniqueMap.has(item.id)) uniqueMap.set(item.id, item); });\n            const uniqueResults = Array.from(uniqueMap.values()).sort((a, b) => b.timestamp - a.timestamp);\n            rawIds = uniqueResults.map(i => i.id);\n            \n            // Fetch Data Immediately\n            if (rawIds.length > 0) {\n                const pipeline = redis.pipeline();\n                rawIds.forEach(id => pipeline.hget(KEY_KILL_DATA, id));\n                const rawData = await pipeline.exec();\n                const fetchedKills = rawData\n                    .filter(([err]) => !err)\n                    .map(([, json]) => { try { return json ? JSON.parse(json) : null; } catch (e) { return null; } })\n                    .filter(Boolean);\n                finalKills = fetchedKills.filter(filterKill);\n                finalKills.sort((a, b) => new Date(b.killmail_time) - new Date(a.killmail_time));\n            }\n        }\n        // SCENARIO B: INITIAL / BACKFILL (Deep Search Loop)\n        else {\n            let iterations = 0;\n            let currentCursor = beforeKillId;\n            \n            while (iterations < DEEP_SEARCH_LIMIT && finalKills.length < FETCH_LIMIT) {\n                let batchResults = [];\n                \n                // Progressive Batch Sizing (Stage 1-4 Strategy)\n                let currentBatchSize = 500; // Stage 2 (Standard)\n                \n                // If requesting a large batch (Deep Search), start aggressive immediately\n                if (FETCH_LIMIT >= 500) {\n                    currentBatchSize = 10000; // Stage 4 (Sweeper) - Immediate Max Power\n                } else {\n                    if (iterations >= 5) currentBatchSize = 2000;  // Stage 3 (Ramp up)\n                    if (iterations >= 10) currentBatchSize = 10000; // Stage 4 (Sweeper)\n                }\n\n                // Fetch Batch of IDs from all sources\n                for (const sourceKey of sourceKeys) {\n                    let indexIds = [];\n                    if (currentCursor) {\n                        const oldestTime = await redis.zscore(sourceKey, currentCursor);\n                        if (oldestTime) {\n                            indexIds = await redis.zrevrangebyscore(sourceKey, `(${oldestTime}`, '-inf', 'WITHSCORES', 'LIMIT', 0, currentBatchSize);\n                        }\n                    } else {\n                        indexIds = await redis.zrevrange(sourceKey, 0, currentBatchSize, 'WITHSCORES');\n                    }\n                    \n                    for (let i = 0; i < indexIds.length; i += 2) {\n                        batchResults.push({ id: indexIds[i], timestamp: parseFloat(indexIds[i + 1]) });\n                    }\n                }\n                \n                if (batchResults.length === 0) break; // End of DB\n                \n                // Sort & Dedupe Batch\n                const uniqueMap = new Map();\n                batchResults.forEach(item => { if (!uniqueMap.has(item.id)) uniqueMap.set(item.id, item); });\n                const sortedBatch = Array.from(uniqueMap.values()).sort((a, b) => b.timestamp - a.timestamp);\n                \n                // Update Cursor for next loop (use the oldest from this batch)\n                currentCursor = sortedBatch[sortedBatch.length - 1].id;\n                \n                // Fetch Data for Batch\n                const pipeline = redis.pipeline();\n                sortedBatch.forEach(item => pipeline.hget(KEY_KILL_DATA, item.id));\n                const rawData = await pipeline.exec();\n                \n                const fetchedKills = rawData\n                    .filter(([err]) => !err)\n                    .map(([, json]) => { try { return json ? JSON.parse(json) : null; } catch (e) { return null; } })\n                    .filter(Boolean);\n                \n                // Filter Batch\n                const validKills = fetchedKills.filter(filterKill);\n                \n                // Add to Final List\n                finalKills.push(...validKills);\n                \n                iterations++;\n            }\n            \n            // Final Sort & Slice\n            finalKills.sort((a, b) => new Date(b.killmail_time) - new Date(a.killmail_time));\n            if (finalKills.length > FETCH_LIMIT) {\n                finalKills = finalKills.slice(0, FETCH_LIMIT);\n            }\n        }\n\n        // Set pagination cursor\n        if (finalKills.length > 0) {\n            oldest_kill_id_for_client = finalKills[finalKills.length - 1].killmail_id;\n        } else if (rawIds.length > 0) {\n            // Fallback if we fetched IDs but filtered them all out (and loop finished)\n            oldest_kill_id_for_client = rawIds[rawIds.length - 1];\n        }\n\n        // ---------------------------------------------------------\n        // 4. LOAD GLOBAL CACHED STATS\n        // ---------------------------------------------------------\n        const [cachedStatsResult, cachedTrendsResult] = await redis.pipeline()\n            .get(KEY_CACHED_STATS)\n            .get(KEY_CACHED_TRENDS)\n            .exec();\n\n        const cachedStatsJson = cachedStatsResult[1];\n        const cachedTrendsJson = cachedTrendsResult[1];\n\n        if (cachedStatsJson) {\n            try {\n                const cs = JSON.parse(cachedStatsJson);\n                stats_24h = cs.stats_24h || { kills: 0, isk: 0 };\n                total_count = cs.total_count || 0;\n                latest_db_killmail_time = cs.latest_db_killmail_time || null;\n            } catch (e) {\n                // Ignore corrupt stats\n            }\n        }\n        \n        trends = cachedTrendsJson \n            ? JSON.parse(cachedTrendsJson) \n            : { kills: 'stable', isk: 'stable', avgValue: 'stable', total30d: 'stable' };\n\n        // ---------------------------------------------------------\n        // 5. GLOBAL 30-DAY STATS (Explicit & Unpacked)\n        // ---------------------------------------------------------\n        const statsPipeline = redis.pipeline();\n        const thirtyDaysAgo = Math.floor(Date.now() / 1000) - (STATS_WINDOW_DAYS * 24 * 60 * 60);\n\n        // Queue: Total Count (Index 0)\n        statsPipeline.zcount(KEY_KILLS_ALL, thirtyDaysAgo, '+inf');\n        \n        // Queue: ISK Buckets (Indices 1-7)\n        statsPipeline.zcount('intel:kills:isk:sub10m', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:isk:10m-100m', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:isk:100m-1b', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:isk:1b-10b', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:isk:10b-20b', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:isk:20b-50b', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:isk:50b', thirtyDaysAgo, '+inf');\n        \n        // Queue: Hourly Activity (Indices 8-31) - Fully Unpacked\n        statsPipeline.zcount('intel:kills:hour:0', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:1', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:2', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:3', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:4', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:5', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:6', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:7', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:8', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:9', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:10', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:11', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:12', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:13', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:14', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:15', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:16', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:17', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:18', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:19', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:20', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:21', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:22', thirtyDaysAgo, '+inf');\n        statsPipeline.zcount('intel:kills:hour:23', thirtyDaysAgo, '+inf');\n\n        const statsResults = await statsPipeline.exec();\n        const total30d = statsResults[0][1] || 1; // Avoid divide by zero\n\n        // Process ISK Distribution\n        isk_distribution = {\n            'sub10m':   { count: statsResults[1][1], percent: parseFloat(((statsResults[1][1] / total30d) * 100).toFixed(1)) },\n            '10m-100m': { count: statsResults[2][1], percent: parseFloat(((statsResults[2][1] / total30d) * 100).toFixed(1)) },\n            '100m-1b':  { count: statsResults[3][1], percent: parseFloat(((statsResults[3][1] / total30d) * 100).toFixed(1)) },\n            '1b-10b':   { count: statsResults[4][1], percent: parseFloat(((statsResults[4][1] / total30d) * 100).toFixed(1)) },\n            '10b-20b':  { count: statsResults[5][1], percent: parseFloat(((statsResults[5][1] / total30d) * 100).toFixed(1)) },\n            '20b-50b':  { count: statsResults[6][1], percent: parseFloat(((statsResults[6][1] / total30d) * 100).toFixed(1)) },\n            '50b':      { count: statsResults[7][1], percent: parseFloat(((statsResults[7][1] / total30d) * 100).toFixed(1)) }\n        };\n\n        // Process Heatmap\n        // Offset is 8 (1 total + 7 isk buckets)\n        activity_heatmap = {};\n        for (let h = 0; h < 24; h++) {\n            const val = statsResults[h + 8][1] || 0;\n            activity_heatmap[h] = { \n                count: val, \n                percent: parseFloat(((val / total30d) * 100).toFixed(1)) \n            };\n        }\n\n        // ---------------------------------------------------------\n        // 6. MULTI-ALLIANCE STATS AGGREGATION\n        // ---------------------------------------------------------\n        if (allianceIds && allianceIds.size > 0) {\n            const summaryPipeline = redis.pipeline();\n            \n            // Queue up all fetch requests\n            const idsList = Array.from(allianceIds);\n            idsList.forEach(id => {\n                summaryPipeline.hgetall(`alliance:summary:${id}`);\n            });\n            \n            const summaryResults = await summaryPipeline.exec();\n            const extraKillIds = new Set();\n            \n            // Process results\n            if (summaryResults) summaryResults.forEach((res, index) => {\n                if (!res[0]) { // No error\n                    const summary = res[1];\n                    if (summary && Object.keys(summary).length > 0) {\n                         const currentId = idsList[index];\n                         \n                         // Sanitize and Normalize\n                         allianceStatsDict[currentId] = {\n                            kills: Number(summary.kills) || 0,\n                            losses: Number(summary.losses) || 0,\n                            // Support legacy naming (value_destroyed vs isk_destroyed)\n                            isk_destroyed: Number(summary.iskDestroyed) || Number(summary.value_destroyed) || 0,\n                            isk_lost: Number(summary.iskLost) || Number(summary.value_lost) || 0,\n                            efficiency: Number(summary.efficiency) || 0,\n                            ratio: Number(summary.ratio) || 0,\n                            activePilots: Number(summary.activePilots) || 0,\n                            lastSeen: Number(summary.lastSeen) || 0,\n                            topShip: summary.top_ship || summary.topShip || '-',\n                            maxKillId: summary.maxKillId,\n                            maxLossId: summary.maxLossId\n                         };\n                         \n                         if (summary.maxKillId) extraKillIds.add(summary.maxKillId);\n                         if (summary.maxLossId) extraKillIds.add(summary.maxLossId);\n                    }\n                }\n            });\n            \n            // Fetch full kill objects for the max kills/losses\n            if (extraKillIds.size > 0) {\n                const kmPipeline = redis.pipeline();\n                extraKillIds.forEach(id => kmPipeline.hget(KEY_KILL_DATA, id));\n                const kmResults = await kmPipeline.exec();\n                \n                const kmMap = {};\n                kmResults.forEach((res) => {\n                    if (!res[0] && res[1]) {\n                        try { const k = JSON.parse(res[1]); kmMap[k.killmail_id] = k; } catch(e){}\n                    }\n                });\n                \n                // Attach full objects to stats\n                Object.values(allianceStatsDict).forEach(stat => {\n                    if (stat.maxKillId) stat.maxKill = kmMap[stat.maxKillId];\n                    if (stat.maxLossId) stat.maxLoss = kmMap[stat.maxLossId];\n                });\n            }\n\n            // Backward compatibility for single selection\n            if (allianceIds.size === 1 && Object.keys(allianceStatsDict).length > 0) {\n                allianceSummary = Object.values(allianceStatsDict)[0];\n            }\n        }\n\n    } catch (e) {\n        return [{ json: { error: e.message, details: e.stack } }];\n    } finally {\n        if (redis) redis.quit();\n    }\n\n    return [{\n        json: {\n            kills: finalKills,\n            total_count: total_count,\n            stats_24h: stats_24h,\n            trends: trends,\n            isk_distribution: isk_distribution,\n            activity_heatmap: activity_heatmap,\n            alliance_stats: allianceStatsDict, // DICTIONARY return\n            alliance_summary: allianceSummary, // LEGACY return\n            oldest_kill_id: oldest_kill_id_for_client,\n            latest_db_killmail_time: latest_db_killmail_time\n        }\n    }];\n})();"
+      },
+      "id": "0e9a4860-27e1-4103-b89a-30cfda9bc620",
+      "name": "4. Merge and Cache Names",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -208
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        96,
+        -208
+      ],
+      "id": "b439bbde-ece7-4171-8985-5582faf2883b",
+      "name": "."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90d84bf4-ec18-4871-ad5b-374880e1778b",
+              "leftValue": "={{ $json.discordalliancenot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        496,
+        -64
+      ],
+      "id": "36cd5313-226f-4dab-9221-880655d2f996",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        704,
+        16
+      ],
+      "id": "897dde2f-e7d7-47c9-81fd-894dd6c60d82",
+      "name": "Do Nothing"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/v10/channels/1436186270190538927/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.discordalliancenot }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        704,
+        -160
+      ],
+      "id": "ba0c30f6-745b-4d4b-b904-545847c250c6",
+      "name": "Send to Discord Webhook",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "r1yjdeBK5MbVsius",
+          "name": "Alfred Bot Auth"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "ESI Kill Pull": {
+      "main": [
+        [
+          {
+            "node": "1. Prepare for Name Resolution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Batch & Set Heartbeat (Worker 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Batch": {
+      "main": [
+        [
+          {
+            "node": "ESI Kill Pull",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Batch & Set Heartbeat (Worker 3": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Prepare for Name Resolution": {
+      "main": [
+        [
+          {
+            "node": "2. Check Redis Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Check Redis Cache": {
+      "main": [
+        [
+          {
+            "node": "Fully Resolved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fully Resolved?": {
+      "main": [
+        [
+          {
+            "node": "3. Fetch Missing Names",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": ".",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "5. Redis Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Redis Processing": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Fetch Missing Names": {
+      "main": [
+        [
+          {
+            "node": ".",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Merge and Cache Names": {
+      "main": [
+        [
+          {
+            "node": "5. Redis Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    ".": {
+      "main": [
+        [
+          {
+            "node": "4. Merge and Cache Names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Do Nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

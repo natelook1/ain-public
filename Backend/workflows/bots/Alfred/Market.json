@@ -1,0 +1,287 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "/**\n * [Process Market Data - Structured Analysis]\n * Input: Merged data from Aggregate node and original request\n */\n\n// --- Helper Function for Name Resolution ---\n/**\n * Resolves an ID to a name, using Redis first, then ESI as a fallback.\n * Caches ESI results back to Redis.\n * @param {string|number} id - The EVE ID (item, station, structure)\n * @param {'item'|'location'} type - The type of ID\n * @param {object} redis - The ioredis client instance\n * @param {object} helpers - The n8n 'this.helpers' object\n * @returns {Promise<string>} - The resolved name\n */\nasync function resolveName(id, type, redis, helpers) {\n  if (!id || id === 'Unknown' || id === null) {\n    return 'Unknown';\n  }\n  \n  const idStr = String(id);\n\n  // 1. Try Redis first\n  try {\n    let name = await redis.hget('eve:id_to_name', idStr);\n    if (name) {\n      return name;\n    }\n  } catch (e) {\n    console.error(`Redis hget error for ${idStr}: ${e.message}`);\n  }\n\n  // 2. Not in Redis, try ESI\n  console.log(`[Cache MISS] ID ${idStr}. Fetching from ESI...`);\n  let esiUrl = '';\n  let defaultName = 'Unknown';\n\n  if (type === 'item') {\n    esiUrl = `https://esi.evetech.net/latest/universe/types/${idStr}/`;\n    defaultName = 'Unknown Item';\n  } else if (type === 'location') {\n    const numericId = Number(idStr);\n    // NPC Stations IDs are generally < 1,000,000,000\n    if (numericId && numericId < 1000000000) { \n      esiUrl = `https://esi.evetech.net/latest/universe/stations/${idStr}/`;\n      defaultName = 'Unknown Station';\n    } else {\n      // It's a player structure (requires auth) or invalid\n      defaultName = 'Unknown (Structure)';\n    }\n  }\n\n  // 3. Make ESI request if we have a URL\n  if (esiUrl) {\n    try {\n      const options = {\n        url: esiUrl,\n        headers: { 'User-Agent': 'EVE-Alfred-Bot/2.1 - Name Resolution' },\n        json: true, // Automatically parse JSON response\n        timeout: 5000 // 5-second timeout\n      };\n      // Use n8n's built-in helper for HTTP requests\n      const response = await helpers.httpRequest(options);\n      \n      if (response && response.name) {\n        const esiName = response.name;\n        console.log(`[ESI OK] ID ${idStr} -> ${esiName}`);\n        \n        // 4. Cache the ESI result back into Redis\n        try {\n          await redis.hset('eve:id_to_name', idStr, esiName);\n        } catch (e) {\n          console.error(`Redis hset error for ${idStr}: ${e.message}`);\n        }\n        return esiName;\n      }\n    } catch (esiError) {\n      console.error(`ESI lookup failed for ID ${idStr} at ${esiUrl}:`, esiError.message);\n    }\n  }\n  \n  // Return default if ESI failed or it was a structure\n  return defaultName;\n}\n// --- End Helper Function ---\n\n\n// --- Main Node Logic ---\ntry {\n  const items = $input.all();\n  console.log('Total items received:', items.length);\n  \n  // Get the aggregated item\n  const aggregatedItem = items[0].json;\n  \n  // Request data might be in items[1] or embedded in aggregatedItem\n  let requestData;\n  if (items.length > 1 && items[1]) {\n    requestData = items[1].json;\n  } else {\n    // Request data is embedded in the aggregated item\n    requestData = aggregatedItem;\n  }\n  \n  // Extract the combined data array\n  const combinedData = aggregatedItem.data || [];\n  \n  // Separate history from orders based on their structure\n  let history = [];\n  let orders = [];\n  \n  combinedData.forEach(item => {\n    // History items have: date, average, highest, lowest, order_count, volume\n    if (item.date && item.average !== undefined && item.highest !== undefined) {\n      history.push(item);\n    }\n    // Order items have: order_id, price, is_buy_order, location_id, etc.\n    else if (item.order_id !== undefined && item.price !== undefined) {\n      orders.push(item);\n    }\n  });\n  \n  console.log(`Parsed ${history.length} history records and ${orders.length} orders`);\n  \n  // --- Historical trends ---\n  const last7 = history.slice(-7);\n  const avg_price_7d = last7.length\n    ? last7.reduce((sum, d) => sum + (d.average || 0), 0) / last7.length\n    : null;\n\n  const avg_daily_volume = last7.length\n    ? last7.reduce((sum, d) => sum + (d.volume || 0), 0) / last7.length\n    : null;\n\n  const prices = last7.map(d => d.average).filter(v => v != null);\n  const price_change_percent =\n    prices.length > 1\n      ? ((prices[prices.length - 1] - prices[0]) / prices[0]) * 100\n      : null;\n\n  const mean = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;\n  const variance = prices.length\n    ? prices.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / prices.length\n    : 0;\n  const volatility_percent = variance ? Math.sqrt(variance) / mean * 100 : null;\n\n  // --- Current market ---\n  const sellOrders = orders.filter(o => !o.is_buy_order);\n  const buyOrders = orders.filter(o => o.is_buy_order);\n\n  const sell_price = sellOrders.length\n    ? Math.min(...sellOrders.map(o => o.price))\n    : null;\n  const buy_price = buyOrders.length\n    ? Math.max(...buyOrders.map(o => o.price))\n    : null;\n\n  const spread_isk = sell_price != null && buy_price != null ? sell_price - buy_price : null;\n  const spread_percent = sell_price != null && buy_price != null\n    ? (spread_isk / sell_price) * 100\n    : null;\n\n  const total_orders = orders.length;\n\n  // --- Locations ---\n  const best_sell_order = sellOrders.reduce((best, o) => (!best || o.price < best.price ? o : best), null);\n  const best_buy_order = buyOrders.reduce((best, o) => (!best || o.price > best.price ? o : best), null);\n\n  const market_locations = {\n    best_sell_location: best_sell_order ? best_sell_order.location_id : 'Unknown',\n    best_buy_location: best_buy_order ? best_buy_order.location_id : 'Unknown'\n  };\n\n  const raw_data_summary = {\n    history_count: history.length,\n    total_orders: orders.length,\n    first_date: history.length ? history[0].date : null,\n    last_date: history.length ? history[history.length - 1].date : null\n  };\n\n  // Get region name from the request data\n  const regionId = requestData.region_ids?.[0];\n  const regionName = requestData.region_name_map?.[regionId] || 'Unknown';\n  const typeId = requestData.type_ids?.[0];\n\n  // --- Resolve Names (Redis then ESI) ---\n  const Redis = require('ioredis');\n  const redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n  const helpers = this.helpers; // Get n8n helper functions\n  \n  let sellLocationName = 'Unknown';\n  let buyLocationName = 'Unknown';\n  let itemName = 'Unknown';\n  \n  try {\n    // Resolve all names using the helper function\n    sellLocationName = await resolveName(\n      market_locations.best_sell_location, \n      'location', \n      redis, \n      helpers\n    );\n    \n    buyLocationName = await resolveName(\n      market_locations.best_buy_location, \n      'location', \n      redis, \n      helpers\n    );\n    \n    itemName = await resolveName(\n      typeId, \n      'item', \n      redis, \n      helpers\n    );\n    \n    await redis.quit();\n  } catch (lookupError) {\n    console.error('Name resolution block error:', lookupError);\n    if (redis) await redis.quit();\n    // Set defaults on error\n    sellLocationName = sellLocationName || 'Lookup Error';\n    buyLocationName = buyLocationName || 'Lookup Error';\n    itemName = itemName || 'Lookup Error';\n  }\n\n  return [{\n    json: {\n      status: 'success',\n      type: 'market_analysis',\n      region: regionName,\n      region_id: regionId,\n      item_name: itemName, // Resolved name\n      item_type_id: typeId,\n      timestamp: new Date().toISOString(),\n      market_summary: {\n        sell_price,\n        buy_price,\n        spread_isk,\n        spread_percent,\n        total_orders,\n        sell_orders_count: sellOrders.length,\n        buy_orders_count: buyOrders.length\n      },\n      market_trends: {\n        avg_price_7d,\n        avg_daily_volume,\n        price_change_percent,\n        volatility_percent\n      },\n      market_locations: {\n        best_sell_location: sellLocationName, // Resolved name\n        best_sell_location_id: market_locations.best_sell_location,\n        best_buy_location: buyLocationName, // Resolved name\n        best_buy_location_id: market_locations.best_buy_location\n      },\n      raw_data_summary\n    }\n  }];\n  \n} catch (err) {\n  console.error('Error processing market data:', err);\n  return [{\n    json: {\n      status: 'error',\n      action: 'market_analysis',\n      error: err.message,\n      stack: err.stack\n    }\n  }];\n}"
+      },
+      "id": "db0735e2-327f-4817-89af-f9d7109b826b",
+      "name": "Process Market Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Always generates both market order and history API calls, ignoring cache misses.\n// Automatically handles PLEX global market (region 19000001)\n\nconst request = $input.first().json;\n\nlet marketOrderCall = null;\nlet marketHistoryCall = null;\n\n// This logic assumes we only ever ask for one item and region at a time.\nlet regionId = request.region_ids[0];\nconst typeId = request.type_ids[0];\n\n// PLEX type ID constant\nconst PLEX_TYPE_ID = 44992;\nconst PLEX_GLOBAL_REGION = 19000001;\n\n// Check if this is a PLEX query and override region\nlet isPlex = false;\nif (typeId === PLEX_TYPE_ID) {\n    console.log(`[PLEX DETECTED] Original region: ${regionId}, switching to global market: ${PLEX_GLOBAL_REGION}`);\n    regionId = PLEX_GLOBAL_REGION;\n    isPlex = true;\n}\n\nif (regionId && typeId) {\n    marketOrderCall = {\n        url: `https://esi.evetech.net/latest/markets/${regionId}/orders/?type_id=${typeId}`,\n        cache_key: `eve:market:orders:${regionId}:${typeId}`,\n        type: 'market_orders'\n    };\n\n    marketHistoryCall = {\n        url: `https://esi.evetech.net/latest/markets/${regionId}/history/?type_id=${typeId}`,\n        cache_key: `eve:market:history:${regionId}:${typeId}`,\n        type: 'market_history'\n    };\n}\n\nconsole.log(`Generated market_order_call and market_history_call for type ${typeId} in region ${regionId}`);\n\n// Build output with potential PLEX overrides\nconst output = { \n    ...request, \n    market_order_call: marketOrderCall,\n    market_history_call: marketHistoryCall\n};\n\n// Add PLEX metadata if applicable\nif (isPlex) {\n    output.is_plex_global_market = true;\n    output.original_region_id = request.region_ids[0];\n    output.region_ids = [PLEX_GLOBAL_REGION];\n    \n    // Update region name map\n    output.region_name_map = {\n        ...request.region_name_map,\n        [PLEX_GLOBAL_REGION]: 'PLEX Global Market'\n    };\n    \n    // Update cache keys\n    output.cache_keys = [\n        `eve:market:orders:${PLEX_GLOBAL_REGION}:${typeId}`,\n        `eve:market:history:${PLEX_GLOBAL_REGION}:${typeId}`\n    ];\n}\n\n// Return a single item with the new call objects\nreturn [{ json: output }];"
+      },
+      "id": "08bcb40a-4122-477d-aa70-09dbeaf5b848",
+      "name": "Prepare API Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "items",
+              "type": "any"
+            },
+            {
+              "name": "region_ids",
+              "type": "array"
+            },
+            {
+              "name": "force_refresh",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1056,
+        -80
+      ],
+      "id": "41f19d1f-3618-4d6a-a896-13810901a843",
+      "name": "MARKET"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.market_history_call.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "EVE-Alfred-Bot/2.1 - Market Data"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "72bb2bc6-5105-4798-8870-488d140d13bc",
+      "name": "markethistory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -496,
+        -160
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -288,
+        -96
+      ],
+      "id": "f8f692cf-a1ee-4355-892b-76434589fadc",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {
+          "includeBinaries": true
+        }
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        -80
+      ],
+      "id": "c96a0092-d3a2-4a96-be17-022c9e65c99a",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate, resolve names, and set defaults for the market request.\nconst Redis = require('ioredis');\nlet redis;\n\ntry {\n  redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 2000 });\n  await new Promise((resolve, reject) => {\n    redis.on('ready', resolve);\n    redis.on('error', reject);\n  });\n\n  const input = $input.first().json;\n\n  // 1. Normalize the 'items' input (handles string or array of strings)\n  let itemNamesFromInput = [];\n  if (typeof input.items === 'string' && input.items.trim() !== '') {\n    itemNamesFromInput = [input.items];\n  } else if (Array.isArray(input.items)) {\n    itemNamesFromInput = input.items.filter(item => typeof item === 'string' && item.trim() !== '');\n  }\n\n  if (itemNamesFromInput.length === 0) {\n    throw new Error(\"Input 'items' is required and must be a non-empty string or an array of non-empty strings.\");\n  }\n  \n  // The action is now implicitly 'market_analysis' for a \"FULL\" lookup.\n  const action = 'market_analysis';\n\n  // 2. Set defaults\n  // Default to The Forge (Jita) if no region_ids are provided\n  const regionIds = input.region_ids && Array.isArray(input.region_ids) && input.region_ids.length > 0 ? input.region_ids : [10000002]; \n\n  // 3. Resolve item names to IDs and region IDs to names from Redis\n  const resolvedIds = [];\n  const unresolvedItems = [];\n  const regionNameMap = {};\n\n  const nameToIdPipeline = redis.pipeline();\n  // Using 'eve:name_to_id' hash which maps lowercase names to IDs\n  // NEW: Try to clean up names before lookup\n  itemNamesFromInput.forEach(originalName => {\n    let processedName = originalName.trim();\n    \n    // RULE: Remove ' ore' from the end, case-insensitive\n    if (processedName.toLowerCase().endsWith(' ore')) {\n      processedName = processedName.substring(0, processedName.length - 4).trim();\n    }\n\n    // Add more cleaning rules here if needed\n\n    // Lookup the processed name\n    nameToIdPipeline.hget('eve:name_to_id', processedName.toLowerCase());\n  });\n  \n  const regionIdToNamePipeline = redis.pipeline();\n  // Using 'eve:id_to_name' for region names for consistency\n  regionIds.forEach(id => regionIdToNamePipeline.hget('eve:id_to_name', id));\n\n  const [nameResults, regionNameResults] = await Promise.all([\n    nameToIdPipeline.exec(),\n    regionIdToNamePipeline.exec()\n  ]);\n\n  // Process item name resolution results\n  nameResults.forEach(([err, id], index) => {\n    if (id) {\n      resolvedIds.push(parseInt(id, 10));\n    } else {\n      // Use the *original* name for the unresolved list\n      unresolvedItems.push(itemNamesFromInput[index]);\n    }\n  });\n\n  // Process region name resolution results\n  regionNameResults.forEach(([err, name], index) => {\n    if (name) {\n      regionNameMap[regionIds[index]] = name;\n    }\n  });\n  \n  const finalTypeIds = [...new Set(resolvedIds)];\n\n  // REMOVED: We no longer throw an error if no items are resolved.\n  // The workflow will simply continue with an empty type_ids list\n  // and a populated unresolved_items list.\n\n  // 4. Prepare the request object for the rest of the workflow\n  const request = {\n    action: action, // Hardcoded for a full lookup\n    type_ids: finalTypeIds,\n    region_ids: regionIds,\n    unresolved_items: unresolvedItems,\n    region_name_map: regionNameMap,\n    force_refresh: input.force_refresh || false,\n    timestamp: new Date().toISOString()\n  };\n\n  // 5. Generate cache keys for the 'market_analysis' action\n  const cacheKeys = [];\n  for (const regionId of request.region_ids) {\n    for (const typeId of request.type_ids) {\n      // 'market_analysis' requires both orders and history\n      cacheKeys.push(`eve:market:orders:${regionId}:${typeId}`);\n      cacheKeys.push(`eve:market:history:${regionId}:${typeId}`);\n    }\n  }\n\n  request.cache_keys = [...new Set(cacheKeys)];\n\n  return [{ json: request }];\n\n} catch (error) {\n  console.error('❌ Input validation/resolution failed:', error.message, error.stack);\n  // Re-throw to halt execution and report error clearly\n  throw error;\n} finally {\n  if (redis) await redis.quit();\n}"
+      },
+      "id": "5698b093-2b9e-4b96-9353-e38bf3788a92",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.market_order_call.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "EVE-Alfred-Bot/2.1 - Market Data"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "3f76e818-451d-45e7-a89e-a64521d3a1fe",
+      "name": "marketorder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -496,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        96,
+        -80
+      ],
+      "id": "a4d9afab-b0b6-4fb2-9793-86a5012a81b3",
+      "name": "Merge1"
+    }
+  ],
+  "connections": {
+    "Prepare API Calls": {
+      "main": [
+        [
+          {
+            "node": "markethistory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "marketorder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "MARKET": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "markethistory": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare API Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "marketorder": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Process Market Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

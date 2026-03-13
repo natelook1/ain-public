@@ -1,0 +1,320 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Input Validator with proper error handling\nconst input = $input.first().json;\n\nconsole.log('=== ROUTE PLANNING INPUT VALIDATION ===');\nconsole.log('Raw input:', JSON.stringify(input, null, 2));\n\n// Helper function for ISK formatting - MOVE TO TOP\nfunction formatISK(value) {\n  if (!value || value === 0) return '0 ISK';\n  if (value >= 1000000000000) return `${(value / 1000000000000).toFixed(1)}T ISK`;\n  if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B ISK`;\n  if (value >= 1000000) return `${(value / 1000000).toFixed(0)}M ISK`;\n  if (value >= 1000) return `${(value / 1000).toFixed(0)}K ISK`;\n  return `${Math.round(value).toLocaleString()} ISK`;\n}\n\ntry {\n  // Extract and validate inputs with proper defaults\n  const origin = input.origin?.toString().trim();\n  const destination = input.destination?.toString().trim();\n  const routePreference = input.route_preference?.toString().toLowerCase() || 'shortest';\n  const shipType = input.ship_type?.toString() || 'unknown';\n  const cargoValue = Math.max(0, parseFloat(input.cargo_value) || 0);\n\n  // Validation with detailed error messages\n  const errors = [];\n  const warnings = [];\n\n  if (!origin || origin.length === 0) {\n    errors.push('Origin system is required and cannot be empty');\n  }\n  if (!destination || destination.length === 0) {\n    errors.push('Destination system is required and cannot be empty');\n  }\n  if (origin && destination && origin.toLowerCase() === destination.toLowerCase()) {\n    errors.push('Origin and destination cannot be the same system');\n  }\n\n  // Route preference validation\n  const validPreferences = ['shortest', 'secure', 'insecure'];\n  let finalPreference = routePreference;\n  if (!validPreferences.includes(routePreference)) {\n    warnings.push(`Invalid route preference '${routePreference}', defaulting to 'shortest'`);\n    finalPreference = 'shortest';\n  }\n\n  // Ship category determination with expanded logic\n  function getShipCategory(ship) {\n    if (!ship || ship === 'unknown') return 'unknown';\n    const s = ship.toLowerCase();\n    \n    // Subcapital ships\n    if (s.includes('frigate') || s.includes('destroyer') || s.includes('cruiser') || \n        s.includes('battlecruiser') || s.includes('battleship') || s.includes('interceptor') ||\n        s.includes('assault') || s.includes('stealth bomber') || s.includes('recon')) {\n      return 'subcapital';\n    }\n    \n    // Industrial/Support\n    if (s.includes('industrial') || s.includes('hauler') || s.includes('transport') ||\n        s.includes('freighter') || s.includes('orca') || s.includes('bowhead')) {\n      return 'industrial';\n    }\n    \n    // Capital ships\n    if (s.includes('capital') || s.includes('carrier') || s.includes('dreadnought') ||\n        s.includes('titan') || s.includes('supercarrier') || s.includes('fax')) {\n      return 'capital';\n    }\n    \n    return 'unknown';\n  }\n\n  // Risk assessment with comprehensive logic\n  const shipCategory = getShipCategory(shipType);\n  const isHighValue = cargoValue > 1000000000; // 1B ISK\n  const isExtremeValue = cargoValue > 10000000000; // 10B ISK\n  \n  let riskTolerance = 'high';\n  if (isExtremeValue) riskTolerance = 'minimal';\n  else if (isHighValue) riskTolerance = 'low';\n  else if (cargoValue > 100000000) riskTolerance = 'medium'; // 100M ISK\n\n  const riskProfile = {\n    cargo_value: cargoValue,\n    cargo_value_formatted: formatISK(cargoValue),\n    risk_tolerance: riskTolerance,\n    ship_category: shipCategory,\n    requires_special_routing: isHighValue || shipCategory === 'capital',\n    is_high_value_cargo: isHighValue,\n    is_extreme_value_cargo: isExtremeValue,\n    recommended_precautions: []\n  };\n\n  // Dynamic recommendations\n  if (isExtremeValue) {\n    riskProfile.recommended_precautions.push('EXTREME VALUE: Use multiple scouts, avoid peak hours, consider jump freighter');\n  } else if (isHighValue) {\n    riskProfile.recommended_precautions.push('HIGH VALUE: Use scout, avoid known gank systems, consider secure route');\n  }\n  \n  if (shipCategory === 'capital') {\n    riskProfile.recommended_precautions.push('CAPITAL: Plan jump routes, avoid highsec, coordinate with alliance');\n  } else if (shipCategory === 'industrial') {\n    riskProfile.recommended_precautions.push('INDUSTRIAL: Consider tank fitting, avoid autopilot in dangerous systems');\n  }\n\n  // Return validation errors if any\n  if (errors.length > 0) {\n    console.error('❌ Input validation failed:', errors.join(', '));\n    return [{\n      json: {\n        success: false,\n        validation_failed: true,\n        error: 'Input validation failed',\n        errors: errors,\n        warnings: warnings,\n        original_input: input\n      }\n    }];\n  }\n\n  console.log('✅ Input validation successful');\n  if (warnings.length > 0) {\n    console.warn('⚠️ Warnings:', warnings.join(', '));\n  }\n  console.log('📋 Risk Profile:', riskProfile);\n\n  return [{\n    json: {\n      // Validated inputs\n      origin: origin,\n      destination: destination,\n      route_preference: finalPreference,\n      ship_type: shipType,\n      cargo_value: cargoValue,\n      \n      // Analysis data\n      risk_profile: riskProfile,\n      \n      // Metadata\n      validation_success: true,\n      warnings: warnings,\n      processing_start: Date.now(),\n      \n      // Original input for reference\n      original_input: input\n    }\n  }];\n  \n} catch (error) {\n  console.error('❌ Validation error:', error.message);\n  return [{\n    json: {\n      success: false,\n      validation_failed: true,\n      error: `Validation error: ${error.message}`,\n      stack: error.stack,\n      original_input: input\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        -80
+      ],
+      "id": "f704ebe5-961d-44e6-96a5-a8a3ae1f11e9",
+      "name": "Input Validator"
+    },
+    {
+      "parameters": {
+        "url": "=https://esi.evetech.net/latest/route/{{ $json.systems[0].id }}/{{ $json.systems[1].id }}/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-eve-route-planner/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        496,
+        -16
+      ],
+      "id": "4e74b679-44b0-4f1a-b109-e27fb5fa219e",
+      "name": "Calculate Route"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        720,
+        -80
+      ],
+      "id": "166fc8fd-4956-447f-8299-30ff522856a4",
+      "name": "Context Preserve"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Replacement Code for \"Redis Route Names\"\n\nconst Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n\ntry {\n    const input = $input.first().json;\n    const routeIds = input.routeIds;\n    const nameHash = 'eve:id_to_name';\n    \n    // Step 1: Get all names that are already in the cache\n    const cachedNamesArray = routeIds.length > 0 ? await redis.hmget(nameHash, ...routeIds) : [];\n    const nameMap = new Map(routeIds.map((id, i) => [id, cachedNamesArray[i]]));\n    \n    // Step 2: Find which IDs are missing\n    const missingIds = routeIds.filter(id => !nameMap.get(id));\n\n    // Step 3: Fetch ONLY the missing names from ESI\n    if (missingIds.length > 0) {\n        console.log(`Resolving ${missingIds.length} missing system names from ESI...`);\n        try {\n            const newNames = await this.helpers.httpRequest({\n                url: 'https://esi.evetech.net/latest/universe/names/',\n                method: 'POST',\n                body: missingIds,\n                json: true\n            });\n            \n            // Step 4: Add new names to our map and cache them back to Redis\n            const pipeline = redis.pipeline();\n            newNames.forEach(item => {\n                nameMap.set(item.id, item.name);\n                pipeline.hset(nameHash, item.id, item.name);\n            });\n            await pipeline.exec();\n        } catch(e) {\n            console.warn(`Could not resolve some names from ESI: ${e.message}`);\n        }\n    }\n    \n    // Step 5: Build the final, ordered list of names\n    const orderedNames = routeIds.map(id => nameMap.get(id) || `System ${id}`);\n    \n    return [{\n        json: {\n            ...input,\n            routeNames: orderedNames,\n            route_complete: true\n        }\n    }];\n    \n} catch (error) {\n    console.error('Name resolution failed:', error.message);\n    return [{ json: { ...$input.first().json, route_complete: false, error: error.message } }];\n} finally {\n    if (redis) await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        -80
+      ],
+      "id": "a82b62e2-1218-4f39-86a6-f8caff459527",
+      "name": "Redis Route Names"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Structured route intelligence for programmatic consumption\nconst input = $input.first().json;\n\ntry {\n  const staticAnalysis = input.static_analysis || {}; // Now correctly populated from Aggregate Route Intel\n  const riskProfile = input.risk_profile || {};\n  const liveIntelSummary = input.live_intel_summary || {}; // Now correctly populated from Aggregate Route Intel\n\n  // Use the combined threat assessment calculated in the previous node\n  const threatLevel = liveIntelSummary.threat_level || 'low';\n  const threatScore = parseFloat((liveIntelSummary.threat_score || 0).toFixed(2)); // Format score for cleaner output\n  const threatConfidence = liveIntelSummary.confidence || 'medium'; \n\n  // Combine recommendations and warnings from ALL relevant sources (input validator, and the aggregate intel node)\n  const combinedRecommendations = Array.from(new Set([\n    ...(riskProfile.recommended_precautions || []), // From Input Validator\n    ...(staticAnalysis.recommendations || []),     // From Aggregate Route Intel (static-based)\n    ...(liveIntelSummary.recommendations || [])    // From Aggregate Route Intel (live-based)\n  ]));\n\n  const combinedWarnings = Array.from(new Set([\n    ...(staticAnalysis.warnings || []),           // From Aggregate Route Intel (static-based)\n    ...(liveIntelSummary.warnings || [])          // From Aggregate Route Intel (live-based)\n  ]));\n\n  const report = {\n    route: {\n      origin: input.routeNames[0],\n      destination: input.routeNames[input.routeNames.length - 1],\n      total_jumps: input.total_jumps,\n      system_ids: input.routeIds,\n      system_names: input.routeNames\n    },\n    \n    threat_assessment: {\n      level: threatLevel,\n      score: threatScore,\n      confidence: threatConfidence\n    },\n    \n    route_characteristics: {\n      trade_hubs: staticAnalysis.trade_hubs_on_route || [], // Should now be populated correctly\n      chokepoints: staticAnalysis.chokepoints_on_route || [],\n      gank_hotspots: staticAnalysis.gank_hotspots_on_route || [],\n      high_traffic_systems: staticAnalysis.high_traffic_on_route || [],\n      security_breakdown: input.security_breakdown // Comes from System Enrichment\n    },\n    \n    risk_factors: {\n      cargo_value: riskProfile.cargo_value,\n      cargo_value_formatted: riskProfile.cargo_value_formatted,\n      ship_category: riskProfile.ship_category,\n      requires_special_routing: riskProfile.requires_special_routing,\n      is_high_value: riskProfile.is_high_value_cargo,\n      is_extreme_value: riskProfile.is_extreme_value_cargo,\n      risk_tolerance: riskProfile.risk_tolerance\n    },\n    \n    systems: input.enriched_systems?.map(sys => ({\n      id: sys.id,\n      name: sys.name,\n      index: sys.index,\n      security_class: sys.security_class,\n      security_status: sys.security,\n      is_trade_hub: sys.static_analysis?.is_trade_hub || false,\n      is_chokepoint: sys.static_analysis?.is_chokepoint || false,\n      is_gank_hotspot: sys.static_analysis?.is_gank_hotspot || false,\n      is_high_traffic: sys.static_analysis?.is_high_traffic || false,\n      tags: sys.static_analysis?.tags || [],\n      live_intel: sys.live_intel || { // Ensure live_intel always has default structure if not present\n        kill_count: 0,\n        total_value: 0,\n        threat_level: 'low',\n        last_activity: null,\n        recent_kills_sample: []\n      }\n    })) || [],\n    \n    recommendations: combinedRecommendations.length > 0 ? combinedRecommendations : [], // Directly use combined and deduplicated\n    warnings: combinedWarnings.length > 0 ? combinedWarnings : [], // Directly use combined and deduplicated\n    \n    live_intel_summary: liveIntelSummary,\n    \n    metadata: {\n      generated_at: new Date().toISOString(),\n      processing_time_ms: input.processing_start ? (Date.now() - input.processing_start) : null,\n      data_sources: ['esi_api', 'static_analysis', 'live_intel_redis'],\n      version: '1.0'\n    }\n  };\n  \n  return [{ json: report }];\n  \n} catch (error) {\n  console.error('❌ Structured report generation failed:', error.message, error.stack);\n  return [{ json: { error: error.message, stack: error.stack, input_data_for_debug: input } }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        -80
+      ],
+      "id": "8306fee0-e836-4bd8-b45a-62edcfa88d99",
+      "name": "Structured Report"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced system enrichment with batched Redis operations\nconst input = $input.first().json;\nconst Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n\ntry {\n  const routeIds = input.routeIds;\n  \n  // Single pipeline for all Redis operations\n  const pipeline = redis.pipeline();\n  routeIds.forEach(id => {\n    pipeline.hmget('eve:system_details', String(id));\n    pipeline.hmget('eve:system_security', String(id));\n    pipeline.hmget('eve:trade_hubs', String(id));\n    pipeline.hmget('eve:chokepoints', String(id));\n    pipeline.hmget('eve:gank_hotspots', String(id));\n    pipeline.hmget('eve:high_traffic', String(id));\n  });\n  \n  const results = await pipeline.exec();\n  \n  const enrichedSystems = routeIds.map((id, index) => {\n    const baseIndex = index * 6;\n    const details = results[baseIndex][1][0] ? JSON.parse(results[baseIndex][1][0]) : null;\n    const security = results[baseIndex + 1][1][0] ? JSON.parse(results[baseIndex + 1][1][0]) : null;\n    \n    // Static analysis flags\n    const isTradeHub = results[baseIndex + 2][1][0] === 'true';\n    const isChokepoint = results[baseIndex + 3][1][0] === 'true';\n    const isGankHotspot = results[baseIndex + 4][1][0] === 'true';\n    const isHighTraffic = results[baseIndex + 5][1][0] === 'true';\n    \n    const tags = [];\n    if (isTradeHub) tags.push('trade_hub');\n    if (isChokepoint) tags.push('chokepoint');\n    if (isGankHotspot) tags.push('gank_hotspot');\n    if (isHighTraffic) tags.push('high_traffic');\n    \n    return {\n      id,\n      name: input.routeNames[index],\n      index,\n      security: details?.security || null,\n      security_class: security?.class || 'unknown',\n      region_id: details?.regionID || null,\n      constellation_id: details?.constellationID || null,\n      static_analysis: {\n        is_trade_hub: isTradeHub,\n        is_chokepoint: isChokepoint,\n        is_gank_hotspot: isGankHotspot,\n        is_high_traffic: isHighTraffic,\n        tags: tags\n      }\n    };\n  });\n  \n  const securityBreakdown = {\n    highsec: enrichedSystems.filter(s => s.security_class === 'highsec').length,\n    lowsec: enrichedSystems.filter(s => s.security_class === 'lowsec').length, \n    nullsec: enrichedSystems.filter(s => s.security_class === 'nullsec').length,\n    wormhole: enrichedSystems.filter(s => s.security_class === 'wormhole').length,\n    unknown: enrichedSystems.filter(s => s.security_class === 'unknown').length\n  };\n  \n  return [{ json: { ...input, enriched_systems: enrichedSystems, security_breakdown: securityBreakdown } }];\n  \n} catch (error) {\n  console.error('System enrichment failed:', error.message);\n  return [{ json: { ...input, enrichment_failed: true } }];\n} finally {\n  if (redis) await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        -80
+      ],
+      "id": "517317f9-3d34-43e8-a1a3-f7ceebf5a527",
+      "name": "System Enrichment"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced route data combiner - fixed node references\nconst input = $input.all();\nconst originalData = $('Input Validator').first().json;\n\n// Find the systems data from Get System IDs node\nconst systemsData = input.find(item => item.json.systems)?.json;\n\n// Extract route IDs from numeric items (route data from Calculate Route)\nconst routeIds = input.filter(item => typeof item.json === 'number').map(item => item.json);\n\ntry {\n  // Enhanced metadata\n  const enhancedMetadata = {\n    calculation_method: 'esi_api',\n    origin_id: systemsData?.systems[0]?.id,\n    destination_id: systemsData?.systems[1]?.id,\n    cached: false,\n    api_sources: ['esi']\n  };\n\n  console.log(`✅ Route data combined: ${routeIds.length} jumps`);\n\n  return [{\n    json: {\n      ...originalData,\n      routeIds: routeIds,\n      routeNames: systemsData?.systems?.map(s => s.name) || [],\n      total_jumps: routeIds.length,\n      route_planning_success: routeIds.length > 0,\n      route_metadata: enhancedMetadata\n    }\n  }];\n  \n} catch (error) {\n  console.error('❌ Enhanced route combination failed:', error.message);\n  return [{\n    json: {\n      ...originalData,\n      routeIds: routeIds,\n      routeNames: systemsData?.systems?.map(s => s.name) || [],\n      total_jumps: routeIds.length,\n      route_planning_success: routeIds.length > 0,\n      intel_processing_failed: true,\n      error: error.message\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        -80
+      ],
+      "id": "a1023f52-1e08-4001-9cd8-46736df4aee6",
+      "name": "Enhanced Combine Route Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 10000 });\n\ntry {\n    const input = $input.first().json;\n    const routeIds = input.routeIds || [];\n\n    if (routeIds.length === 0) {\n        console.warn('No route IDs to fetch intel for.');\n        return [{ json: { ...input, live_intel_raw_data: [], redis_fetch_success: true } }];\n    }\n    \n    console.log(`📡 Fetching live intel for ${routeIds.length} systems...`);\n\n    const pipeline = redis.pipeline();\n    const now = Math.floor(Date.now() / 1000); // Convert to seconds\n    const twentyFourHoursAgo = now - (24 * 60 * 60); // 24 hours in seconds\n\n    routeIds.forEach(id => {\n        pipeline.hgetall(`intel:stats:system:${id}`);\n        pipeline.zrevrangebyscore(\n            `intel:kills:system:${id}`, \n            '+inf', \n            twentyFourHoursAgo, \n            'LIMIT', 0, 50\n        );\n    });\n    const results = await pipeline.exec();\n\n    const liveIntelData = [];\n    for (let i = 0; i < routeIds.length; i++) {\n        const statsResult = results[i * 2];\n        const killIdsResult = results[i * 2 + 1];\n\n        const stats = (statsResult && statsResult[1] && Object.keys(statsResult[1]).length > 0) ? statsResult[1] : null;\n        const killIds = (killIdsResult && killIdsResult[1]) ? killIdsResult[1] : [];\n        \n        // Now fetch the actual kill data using the IDs\n        const recentKills = [];\n        if (killIds.length > 0) {\n            const killDataPipeline = redis.pipeline();\n            killIds.forEach(killId => {\n                killDataPipeline.hget('intel:kill:data', String(killId));\n            });\n            const killDataResults = await killDataPipeline.exec();\n            \n            for (const result of killDataResults) {\n                if (result && result[1]) {\n                    try {\n                        const killData = JSON.parse(result[1]);\n                        recentKills.push({\n                            id: killData.killmail_id,\n                            time: killData.killmail_time,\n                            val: killData.total_value || 0,\n                            v_ship: killData.victim?.ship_type_name || 'Unknown Ship',\n                            k_char: killData.attackers?.[0]?.character_name || 'Unknown'\n                        });\n                    } catch (e) {\n                        console.warn(`Failed to parse kill data:`, e.message);\n                    }\n                }\n            }\n        }\n        \n        liveIntelData.push({\n            system_id: routeIds[i],\n            stats: stats,\n            recent_kills: recentKills\n        });\n    }\n\n    console.log(`✅ Successfully fetched live intel for ${liveIntelData.filter(d => d.recent_kills.length > 0).length} systems.`);\n    \n    return [{ \n        json: { \n            ...input, \n            live_intel_raw_data: liveIntelData,\n            redis_fetch_success: true\n        } \n    }];\n\n} catch (error) {\n    console.error('❌ Error fetching live intel from Redis:', error.message);\n    return [{ \n        json: { \n            ...input, \n            live_intel_raw_data: [],\n            redis_fetch_success: false,\n            redis_error: error.message\n        } \n    }];\n} finally {\n    if (redis) await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        -80
+      ],
+      "id": "154ef204-c5d0-441e-82ae-117cf450c637",
+      "name": "Redis Live Intel Fetch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconsole.log('--- START PER-SYSTEM LIVE INTEL PROCESSING (ROBUST) ---');\n\nconst enrichedSystems = input.enriched_systems || [];\nconst liveIntelData = input.live_intel_raw_data || [];\n\nlet totalKills = 0, totalValue = 0, systemsWithActivity = 0, highValueKills = 0;\nconst hunterOrgs = new Map();\nconst victimShips = new Map();\nconst recentActivity = [];\nconst processedKills = new Set();\nconst now = new Date();\nconst oneHourAgo = new Date(now.getTime() - (60 * 60 * 1000));\nconst twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));\n\nconst processedEnrichedSystems = enrichedSystems.map((system, i) => {\n    const intelForSystem = liveIntelData.find(d => d.system_id === system.id);\n    \n    system.static_analysis = system.static_analysis || {};\n\n    const recentKills = intelForSystem?.recent_kills || [];\n    \n    // Filter kills by time\n    const kills_1h = recentKills.filter(k => new Date(k.time) >= oneHourAgo);\n    const kills_24h = recentKills.filter(k => new Date(k.time) >= twentyFourHoursAgo);\n    \n    // Calculate values for the 1-hour and 24-hour windows\n    const kill_count_1h = kills_1h.length;\n    const kill_count_24h = kills_24h.length;\n    const total_value_1h = kills_1h.reduce((sum, k) => sum + (k.val || 0), 0);\n    const total_value_24h = kills_24h.reduce((sum, k) => sum + (k.val || 0), 0);\n\n    // Aggregate route-wide totals from the 24h window\n    if (kill_count_24h > 0) {\n        systemsWithActivity++;\n        totalKills += kill_count_24h;\n        totalValue += total_value_24h;\n\n        // Populate recent activity for the route report (using the full recent list)\n        for (const kill of recentKills) {\n            const killKey = `${kill.id}-${kill.time}-${system.name}`;\n            if (processedKills.has(killKey)) continue;\n            processedKills.add(killKey);\n\n            if (kill.val > 1000000000) highValueKills++;\n            if (kill.k_char && kill.k_char !== 'Unknown') hunterOrgs.set(kill.k_char, (hunterOrgs.get(kill.k_char) || 0) + 1);\n            if (kill.v_ship && kill.v_ship !== 'Unknown Ship') victimShips.set(kill.v_ship, (victimShips.get(kill.v_ship) || 0) + 1);\n            recentActivity.push({ \n                system_name: system.name, \n                victim_ship: kill.v_ship, \n                killer: kill.k_char, \n                value: kill.val, \n                time: kill.time \n            });\n        }\n    }\n    \n    let systemThreat = 'low';\n    if (kill_count_24h > 30 || system.static_analysis.is_gank_hotspot) systemThreat = 'extreme';\n    else if (kill_count_24h > 15 || system.static_analysis.is_chokepoint) systemThreat = 'high';\n    else if (kill_count_24h > 5 || system.static_analysis.is_high_traffic) systemThreat = 'medium';\n    \n    system.live_intel = {\n        kill_count: kill_count_24h,\n        total_value: total_value_24h,\n        threat_level: systemThreat,\n        last_activity: intelForSystem?.stats?.last_activity || null,\n        // The entire list of recent kills is now being passed\n        recent_kills_sample: recentKills.filter((kill, index, arr) => \n            arr.findIndex(k => k.id === kill.id && k.time === kill.time) === index\n        )\n    };\n\n    return system;\n});\n\nreturn [{\n    json: {\n        ...input,\n        enriched_systems: processedEnrichedSystems,\n        totalKills_aggregated: totalKills,\n        totalValue_aggregated: totalValue,\n        systemsWithActivity_aggregated: systemsWithActivity,\n        highValueKills_aggregated: highValueKills,\n        hunterOrgs_map: Object.fromEntries(hunterOrgs),\n        victimShips_map: Object.fromEntries(victimShips),\n        recentActivity_list: recentActivity\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        -80
+      ],
+      "id": "dab151de-4af1-400b-a092-dc462f4bf743",
+      "name": "Process Per-System Live Intel"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconsole.log('--- START AGGREGATE ROUTE INTEL ---');\n\nconst enrichedSystems = input.enriched_systems || [];\nconst riskProfile = input.risk_profile || {};\nconst routeIds = input.routeIds || [];\n\n// These are now correctly aggregated from the 24-hour window in the previous node\nconst totalKills = input.totalKills_aggregated || 0;\nconst totalValue = input.totalValue_aggregated || 0;\nconst systemsWithActivity = input.systemsWithActivity_aggregated || 0;\nconst highValueKills = input.highValueKills_aggregated || 0;\nconst hunterOrgs_map = input.hunterOrgs_map || {};\nconst victimShips_map = input.victimShips_map || {};\nconst recentActivity_list = input.recentActivity_list || [];\n\nconst analysis = {\n trade_hubs_on_route: enrichedSystems.filter(s => s.static_analysis?.is_trade_hub).map(s => s.name),\n chokepoints_on_route: enrichedSystems.filter(s => s.static_analysis?.is_chokepoint).map(s => s.name),\n gank_hotspots_on_route: enrichedSystems.filter(s => s.static_analysis?.is_gank_hotspot).map(s => s.name),\n high_traffic_on_route: enrichedSystems.filter(s => s.static_analysis?.is_high_traffic).map(s => s.name),\n warnings: [],\n recommendations: []\n};\n\n// Rebalanced threat scoring\nlet threatScore = 0;\nthreatScore += totalKills * 0.5;\nthreatScore += systemsWithActivity * 5;\nthreatScore += highValueKills * 10;\nthreatScore += Math.log10(totalValue + 1) * 2;\n\n// Reduced multipliers for more realistic scoring\nthreatScore += analysis.gank_hotspots_on_route.length * 20;\nthreatScore += analysis.chokepoints_on_route.length * 10;\nthreatScore += analysis.high_traffic_on_route.length * 2;\nthreatScore += analysis.trade_hubs_on_route.length * 1;\n\nif (riskProfile.is_high_value_cargo) threatScore += 50;\nif (riskProfile.ship_category === 'industrial') threatScore += 25;\nif (riskProfile.ship_category === 'capital') threatScore += 30;\n\nconst threatLevel = threatScore > 100 ? 'extreme' :\n                  threatScore > 60 ? 'high' :\n                  threatScore > 30 ? 'medium' : 'low';\n\nif (analysis.gank_hotspots_on_route.length > 0) {\n analysis.warnings.push(`DANGER: Route passes through gank hotspot(s): ${analysis.gank_hotspots_on_route.join(', ')}`);\n}\nif (totalKills > 50) {\n analysis.warnings.push(`HIGH ACTIVITY: ${totalKills} kills detected across route`);\n}\nif (highValueKills > 5) {\n analysis.warnings.push(`HIGH VALUE TARGETS: ${highValueKills} billion+ ISK kills detected`);\n}\nif (analysis.chokepoints_on_route.length > 0) {\n analysis.warnings.push(`Route passes through chokepoint(s): ${analysis.chokepoints_on_route.join(', ')}`);\n}\n\nif (riskProfile.is_high_value_cargo && analysis.gank_hotspots_on_route.length > 0) {\n analysis.recommendations.push('HIGH VALUE + GANK ROUTE: Use scout, consider alternative route');\n}\nif (threatLevel === 'extreme') {\n analysis.recommendations.push('EXTREME THREAT: Consider alternative route or significant delays');\n} else if (threatLevel === 'high' && riskProfile.is_high_value_cargo) {\n analysis.recommendations.push('HIGH THREAT + HIGH VALUE: Use multiple scouts and avoid peak hours');\n}\nif (riskProfile.ship_category === 'industrial' && analysis.chokepoints_on_route.length > 0) {\n analysis.recommendations.push('INDUSTRIAL + CHOKEPOINT: Fit for tank, avoid autopilot');\n}\nif (riskProfile.ship_category === 'capital') {\n analysis.recommendations.push('CAPITAL: Plan jump routes carefully, coordinate intel, consider cyno alternatives.');\n}\n\nconst liveIntelSummary = {\n threat_level: threatLevel,\n threat_score: threatScore,\n confidence: input.redis_fetch_success ? 'high' : 'low',\n \n activity_summary: {\n   total_kills: totalKills,\n   total_value_destroyed: totalValue,\n   systems_with_activity: systemsWithActivity,\n   high_value_kills: highValueKills,\n   route_systems_analyzed: routeIds.length\n },\n \n patterns: {\n   top_hunters: Array.from(Object.entries(hunterOrgs_map))\n     .sort((a, b) => b[1] - a[1])\n     .slice(0, 5)\n     .map(([name, kills]) => ({ name, kills })),\n   \n   common_victims: Array.from(Object.entries(victimShips_map))\n     .sort((a, b) => b[1] - a[1])\n     .slice(0, 5)\n     .map(([ship, kills]) => ({ ship, kills }))\n },\n \n recent_activity: recentActivity_list\n   .sort((a, b) => new Date(b.time) - new Date(a.time)),\n \n warnings: analysis.warnings,\n recommendations: analysis.recommendations,\n \n data_quality: {\n   source: 'cached_zkill_intel',\n   systems_resolved: systemsWithActivity,\n   total_systems: routeIds.length,\n   coverage: `${Math.round((systemsWithActivity / routeIds.length) * 100)}%`\n }\n};\n\nconsole.log(`✅ Aggregated route intel: ${threatLevel.toUpperCase()} threat (${threatScore} score)`);\nconsole.log(`   Total Kills: ${totalKills}, Total Value: ${totalValue}`);\n\nreturn [{\n json: {\n   ...input,\n   static_analysis: analysis,\n   live_intel_summary: liveIntelSummary\n }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        -80
+      ],
+      "id": "5985607c-fe58-4672-a2f8-15d132e810a8",
+      "name": "Aggregate Route Intel"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get System IDs - Redis-first with ESI fallback\nconst Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n\ntry {\n    const input = $input.first().json;\n    const origin = input.origin;\n    const destination = input.destination;\n    \n    console.log(`Resolving system names: ${origin} -> ${destination}`);\n    \n    // Try Redis cache first for both systems\n    const [originId, destinationId] = await Promise.all([\n        redis.hget('eve:solar_system_name_to_id', origin.toLowerCase()),\n        redis.hget('eve:solar_system_name_to_id', destination.toLowerCase())\n    ]);\n    \n    const systems = [];\n    const systemsToResolve = [];\n    \n    // Check what we need to resolve via ESI\n    if (originId) {\n        systems.push({ id: parseInt(originId), name: origin });\n    } else {\n        systemsToResolve.push(origin);\n    }\n    \n    if (destinationId) {\n        systems.push({ id: parseInt(destinationId), name: destination });\n    } else {\n        systemsToResolve.push(destination);\n    }\n    \n    // ESI fallback for missing systems\n    if (systemsToResolve.length > 0) {\n        console.log(`Resolving ${systemsToResolve.length} systems via ESI...`);\n        \n        const esiResponse = await this.helpers.httpRequest({\n            url: 'https://esi.evetech.net/latest/universe/ids/',\n            method: 'POST',\n            body: systemsToResolve,\n            json: true,\n            headers: { \n                'User-Agent': 'n8n-eve-route-planner/1.0',\n                'Content-Type': 'application/json'\n            }\n        });\n        \n        if (esiResponse.solar_systems) {\n            // Cache the results and add to systems array\n            const pipeline = redis.pipeline();\n            \n            for (const system of esiResponse.solar_systems) {\n                systems.push({ id: system.id, name: system.name });\n                pipeline.hset('eve:solar_system_name_to_id', system.name.toLowerCase(), system.id.toString());\n                pipeline.hset('eve:id_to_name', system.id.toString(), system.name);\n            }\n            \n            await pipeline.exec();\n            console.log(`Cached ${esiResponse.solar_systems.length} new systems`);\n        }\n    }\n    \n    // Ensure we have both systems\n    if (systems.length < 2) {\n        const missingSystem = systems.length === 0 ? `${origin} and ${destination}` : \n                             !originId ? origin : destination;\n        throw new Error(`Could not resolve system(s): ${missingSystem}`);\n    }\n    \n    // Order systems correctly (origin first, destination second)\n    const orderedSystems = [\n        systems.find(s => s.name.toLowerCase() === origin.toLowerCase()),\n        systems.find(s => s.name.toLowerCase() === destination.toLowerCase())\n    ];\n    \n    console.log(`✅ Resolved systems: ${orderedSystems[0].name} (${orderedSystems[0].id}) -> ${orderedSystems[1].name} (${orderedSystems[1].id})`);\n    \n    return [{ json: { ...input, systems: orderedSystems } }];\n    \n} catch (error) {\n    console.error('❌ System ID resolution failed:', error.message);\n    return [{ json: { ...input, error: error.message, systems: [] } }];\n} finally {\n    if (redis && redis.status === 'ready') {\n        await redis.quit();\n    }\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        -80
+      ],
+      "id": "37d7220c-a0ab-42ea-af69-e22e8f955a7e",
+      "name": "Get System IDs - Redis First"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "origin"
+            },
+            {
+              "name": "destination"
+            },
+            {
+              "name": "route_preference"
+            },
+            {
+              "name": "ship_type"
+            },
+            {
+              "name": "cargo_value"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -176,
+        -80
+      ],
+      "id": "362c8e8a-6851-40be-8d0e-d5220470fae7",
+      "name": "ROUTE"
+    }
+  ],
+  "connections": {
+    "Input Validator": {
+      "main": [
+        [
+          {
+            "node": "Get System IDs - Redis First",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Route": {
+      "main": [
+        [
+          {
+            "node": "Context Preserve",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Context Preserve": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Combine Route Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Route Names": {
+      "main": [
+        [
+          {
+            "node": "System Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Redis Live Intel Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Combine Route Data": {
+      "main": [
+        [
+          {
+            "node": "Redis Route Names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Live Intel Fetch": {
+      "main": [
+        [
+          {
+            "node": "Process Per-System Live Intel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Per-System Live Intel": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Route Intel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Route Intel": {
+      "main": [
+        [
+          {
+            "node": "Structured Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get System IDs - Redis First": {
+      "main": [
+        [
+          {
+            "node": "Calculate Route",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Context Preserve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ROUTE": {
+      "main": [
+        [
+          {
+            "node": "Input Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

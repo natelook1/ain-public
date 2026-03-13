@@ -1,0 +1,731 @@
+.kill-card {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: rgba(20, 20, 25, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  margin-bottom: 2px;
+  padding: 0.5rem;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+  min-height: 100px;
+  cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}
+
+.kill-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Background Gradient (Red -> Green) */
+.kill-card-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(231, 76, 60, 0.15) 0%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0) 60%, rgba(46, 204, 113, 0.15) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Security Status Tab (Left Border) */
+.kill-card.sec-hs { border-left: 4px solid #00e676; }
+.kill-card.sec-ls { border-left: 4px solid #e5b230; }
+.kill-card.sec-ns { border-left: 4px solid #bf2424; }
+.kill-card.sec-poch { border-left: 4px solid #e85d04; }
+.kill-card.sec-wh { border-left: 4px solid #3498db; }
+.kill-card.sec-ab { border-left: 4px solid #428bca; }
+.kill-card.sec-unknown { border-left: 4px solid #7f8c8d; }
+
+/* Sections */
+.card-section {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-section.left {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.card-section.right {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.card-section.center {
+  flex: 0 0 120px; /* Fixed width for center to prevent shifting */
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.1rem;
+  text-align: center;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0 0.5rem;
+}
+
+/* Visual Stack (Icon + Label) */
+.visual-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  z-index: 25; /* Base for ship image */
+}
+
+.visual-stack .stack-label {
+    /* Default desktop position */
+}
+
+.ship-label {
+  font-size: 0.7rem;
+  color: #888;
+  text-align: center;
+  max-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Ship Icons */
+.ship-icon-wrapper {
+  width: 80px;
+  height: 80px;
+  background-color: #000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 25;
+}
+
+.ship-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* Alliance Overlay on Ship Stack (RESTORED SIZE) */
+.alliance-overlay {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 32px; /* Restored from 48px */
+  height: 32px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: #000;
+  border-radius: 2px;
+  z-index: 40;
+}
+
+/* Sub-overlay for Corp when Alliance is present (RESTORED SIZE) */
+.corp-overlay-sub {
+  position: absolute;
+  bottom: -4px;
+  right: 28px; /* Positioned next to 32px alliance overlay */
+  width: 24px; /* Restored from 32px */
+  height: 24px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: #000;
+  border-radius: 2px;
+  z-index: 39;
+  display: none; /* Hidden by default on desktop unless requested */
+}
+
+.card-section.right .alliance-overlay {
+  right: auto;
+  left: -4px;
+}
+
+.card-section.right .corp-overlay-sub {
+  right: auto;
+  left: 28px;
+}
+
+/* Portrait Background */
+.bg-portrait {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  opacity: 0.35;
+  z-index: 26; /* ABOVE ship image (25) but BELOW text (30) */
+  pointer-events: none;
+  border-radius: 4px;
+}
+
+.card-section.left .bg-portrait {
+  left: 0;
+  mask-image: linear-gradient(to right, black 20%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 20%, transparent 100%);
+}
+
+.card-section.right .bg-portrait {
+  right: 0;
+  mask-image: linear-gradient(to left, black 20%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to left, black 20%, transparent 100%);
+}
+
+/* Info Blocks */
+.info-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0; /* Allow text truncation */
+  position: relative;
+  z-index: 30; /* Text sits on top */
+}
+
+.info-block.right-align {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.char-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ship-class {
+  font-size: 0.85rem;
+  color: #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Corp Icon & Line */
+.corp-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: #999;
+}
+
+.corp-line.right-align {
+  justify-content: flex-end;
+}
+
+.corp-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  background-color: rgba(0,0,0,0.5);
+  flex-shrink: 0;
+}
+
+.corp-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alliance-name {
+  font-size: 0.7rem;
+  color: #90cdf4; /* Standard non-tracked color */
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Center Stats */
+.isk-value { font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 1.1rem; }
+.isk-value .unit { font-size: 0.8em; opacity: 0.8; margin-left: 1px; }
+.isk-grey { color: #bdc3c7; }
+.isk-blue { color: #3498db; }
+.isk-green { color: #2ecc71; }
+.isk-yellow { color: #f1c40f; }
+.isk-orange { color: #e67e22; }
+.isk-red { color: #e74c3c; }
+.isk-white { color: #ffffff; text-shadow: 0 0 8px rgba(255, 255, 255, 0.5); }
+
+.system-name { font-size: 0.9rem; font-weight: 700; }
+.text-sec-hs { color: #27c42d; }
+.text-sec-ls { color: #e5b230; }
+.text-sec-ns { color: #bf2424; }
+.text-sec-poch { color: #e85d04; }
+.text-sec-wh { color: #9b59b6; }
+.text-sec-ab { color: #428bca; }
+.text-sec-unknown { color: #7f8c8d; }
+
+.kill-time, .time-ago { font-size: 0.75rem; color: #666; }
+.plus-x { color: var(--accent-primary); font-size: 0.8em; margin-left: 4px; font-weight: 700; }
+
+/* Ship Class Colors */
+.ship-class.ship-frigate, .ship-label.ship-frigate { color: #a0aec0; }
+.ship-class.ship-destroyer, .ship-label.ship-destroyer { color: #cbd5e0; }
+.ship-class.ship-cruiser, .ship-label.ship-cruiser { color: #4a9eff; }
+.ship-class.ship-bc, .ship-label.ship-bc { color: #f6ad55; }
+.ship-class.ship-bs, .ship-label.ship-bs { color: #ed8936; }
+.ship-class.ship-capital, .ship-label.ship-capital { color: #f56565; }
+.ship-class.ship-industrial, .ship-label.ship-industrial { color: #68d391; }
+.ship-class.ship-shuttle, .ship-label.ship-shuttle { color: #4b5563; }
+.ship-class.ship-fighter, .ship-label.ship-fighter { color: #94a3b8; }
+.ship-class.ship-capsule, .ship-label.ship-capsule { color: #8895a7; }
+.ship-class.ship-unknown, .ship-label.ship-unknown { color: #8895a7; }
+
+/* Fleet Comp */
+.fleet-comp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: flex-end;
+  margin-top: 4px;
+  max-width: 180px;
+}
+
+/* Hide compact fleet comp on large screens where expanded view takes over */
+@media (min-width: 1200px) {
+  .info-block .fleet-comp { display: none; }
+  .fleet-comp.expanded { max-width: 240px; }
+}
+
+.fleet-item {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 2px;
+}
+
+.fleet-icon { width: 100%; height: 100%; object-fit: contain; }
+
+.fleet-count {
+  position: absolute;
+  bottom: -2px; right: -2px;
+  font-size: 8px;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 0 2px;
+  border-radius: 2px;
+  line-height: 1;
+}
+
+/* ISK Breakdown & Labels */
+.isk-breakdown { font-size: 0.7rem; color: #888; margin-top: 2px; }
+.isk-breakdown .destroyed { color: #e74c3c; }
+.isk-breakdown .dropped { color: #2ecc71; }
+.isk-breakdown.centered { 
+  text-align: center; 
+  font-size: 0.8rem; 
+  font-weight: 600;
+}
+
+.kill-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; margin-bottom: 2px; }
+.label-solo { color: var(--accent-primary); }
+.label-npc { color: #fff; }
+
+/* EXPANDED DETAILS (1080p+) */
+.expanded-details {
+  display: none; /* Hidden by default */
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 1rem;
+  min-width: 120px;
+  opacity: 0.8;
+  flex: 1;
+  align-items: center;
+}
+
+.expanded-details.left {
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+
+.expanded-details.right {
+  border-left: 1px solid rgba(255,255,255,0.05);
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.detail-row.right-align {
+  align-items: flex-end;
+}
+
+.detail-row.centered {
+  align-items: center;
+}
+
+.detail-label { font-size: 0.65rem; color: #666; font-weight: 700; letter-spacing: 0.5px; }
+.detail-value { font-size: 0.8rem; color: #ccc; font-weight: 600; white-space: nowrap; }
+
+.weapon-info { display: flex; align-items: center; gap: 4px; }
+.weapon-icon { width: 16px; height: 16px; border-radius: 2px; }
+
+/* Show details on large screens */
+@media (min-width: 1200px) {
+  .expanded-details {
+    display: flex;
+  }
+  .card-section.center { flex: 0 0 160px; } /* Slightly wider center */
+
+  /* Fixed widths for alignment */
+  .visual-stack { flex: 0 0 80px; }
+  .info-block { flex: 0 0 160px; min-width: 160px; max-width: 160px; }
+  .expanded-details { flex: 1; }
+}
+
+@media (min-width: 1600px) {
+  .info-block { flex: 0 0 200px; min-width: 200px; max-width: 200px; }
+}
+
+@media (min-width: 1920px) {
+  .info-block { flex: 0 0 240px; min-width: 240px; max-width: 240px; }
+}
+
+/* Context Menu */
+.context-menu {
+  position: fixed;
+  z-index: 10000;
+  background: #1a1f2e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  padding: 4px 0;
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.context-header {
+  padding: 8px 12px;
+  font-size: 0.7rem;
+  color: #666;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.context-item {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: #ccc;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.context-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.context-item.sub {
+  padding-left: 24px;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.context-item-action {
+  color: #4ade80;
+}
+
+.context-item-action span {
+  margin-right: 4px;
+}
+
+.context-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
+/* Submenu styling */
+.context-submenu {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.context-submenu:last-child {
+  border-bottom: none;
+}
+
+.context-submenu-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.context-submenu-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.submenu-arrow {
+  font-size: 8px;
+  color: #666;
+  width: 10px;
+}
+
+.submenu-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #888;
+}
+
+.submenu-name {
+  font-size: 0.75rem;
+  color: #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.context-submenu-items {
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Stack Labels (Kill/Loss/Assist/Neutral) */
+.stack-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(-50%);
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 11;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  white-space: nowrap;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.label-kill {
+  background-color: #166534; /* Green-800 */
+  color: #4ade80; /* Green-400 */
+  border: 1px solid #22c55e;
+}
+
+.label-loss {
+  background-color: #991b1b; /* Red-800 */
+  color: #f87171; /* Red-400 */
+  border: 1px solid #ef4444;
+}
+
+.label-assist {
+  background-color: #854d0e; /* Yellow-800 */
+  color: #facc15; /* Yellow-400 */
+  border: 1px solid #eab308;
+}
+
+.label-neutral {
+  background-color: #334155; /* Slate-700 */
+  color: #94a3b8; /* Slate-400 */
+  border: 1px solid #475569;
+}
+
+/* --- MOBILE SPECIFIC OVERLAPS --- */
+@media (max-width: 767px) {
+  /* Remove tags to declutter */
+  .stack-label { display: none; }
+
+  /* Hide Corp/Alliance Names, Ship Classes, and Kill Labels (Solo/NPC) */
+  /* Re-enable ship-label display for the pill */
+  .corp-line, .alliance-name, .ship-class, .kill-label { display: none !important; }
+
+  /* Ship Label Pill Styling */
+  .ship-label {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(10, 14, 26, 0.95); /* Dark background */
+    border: 1px solid currentColor; /* Use the color from the ship class */
+    color: inherit; /* Inherit color from the ship class selector */
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    white-space: nowrap;
+    z-index: 50;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    max-width: 120%; /* Allow slightly wider than parent */
+    text-shadow: none;
+    margin-top: 0;
+  }
+  
+  /* KillCard Height & Spacing */
+  .kill-card { min-height: 70px; padding: 0.5rem; margin-bottom: 2px; zoom: 0.95; } /* Reduced margin and Zoom */
+  .card-section { gap: 0.5rem; }
+  .ship-icon-wrapper { width: 64px; height: 64px; }
+  .visual-stack .stack-label { bottom: 12px; top: auto; }
+  
+  /* Alliance Overlay Top */
+  .alliance-overlay {
+      top: -4px;
+      left: -4px;
+      right: auto;
+      bottom: auto;
+      width: 24px;
+      height: 24px;
+      z-index: 40;
+  }
+  
+  /* Corp Sub Overlay (Mobile: Below Alliance) */
+  .corp-overlay-sub {
+      display: block !important; /* Visible on mobile, force override */
+      top: 22px; /* Below alliance logo (which is -4px top + 24px height + 2px gap) */
+      left: -4px;
+      right: auto;
+      bottom: auto;
+      width: 18px;
+      height: 18px;
+      z-index: 41; /* Above portrait if overlapping */
+  }
+
+  .card-section.right .alliance-overlay {
+      left: auto;
+      right: -4px;
+  }
+  
+  .card-section.right .corp-overlay-sub {
+      left: auto;
+      right: -4px;
+  }
+
+  /* --- LEFT SIDE (Victim) --- */
+  .card-section.left .info-block {
+    overflow: visible;
+    padding-top: 18px; 
+    margin-left: -64px; /* Pull text stack over image width */
+    width: 100%;
+    pointer-events: none;
+    align-items: flex-start;
+  }
+
+  .card-section.left .char-name {
+    position: absolute;
+    /* Raised higher and moved outwards */
+    top: -30px; 
+    left: 15px; /* Move inwards to avoid emblem overlap */
+    /* Width constraint to avoid center */
+    width: 140px; 
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 0 4px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1);
+    z-index: 30;
+    pointer-events: auto;
+    text-align: left;
+    font-size: 0.9rem;
+  }
+
+  /* --- CENTER --- */
+  .card-section.center {
+      position: absolute;
+      top: 4px; /* Start at the top as requested */
+      left: 50%;
+      transform: translateX(-50%);
+      width: auto;
+      min-width: 80px;
+      flex: 0 0 auto;
+      gap: 1px;
+      margin-top: 0;
+      padding: 0 4px;
+      z-index: 40;
+      align-items: center;
+  }
+  .isk-value { font-size: 0.9rem; }
+  .system-name { font-size: 0.8rem; line-height: 1.2; text-align: center; width: 100%; }
+  .kill-time { font-size: 0.65rem; color: #aaa; }
+  .time-ago { font-size: 0.65rem; }
+
+  /* --- RIGHT SIDE (Attacker) --- */
+  .card-section.right .info-block {
+    overflow: visible;
+    padding-top: 18px;
+    margin-right: -74px; 
+    width: 100%;
+    pointer-events: none;
+    align-items: flex-end;
+  }
+
+  .card-section.right .char-name {
+    position: absolute;
+    /* Raised higher and moved outwards */
+    top: -22px;
+    right: 28px; /* Move inwards to avoid emblem overlap */
+    /* Width constraint */
+    width: 140px; 
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    text-shadow: 0 0 4px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1);
+    z-index: 30;
+    pointer-events: auto;
+    font-size: 0.9rem;
+  }
+  
+  /* Fleet Count (+x) styling - Repositioned */
+  .plus-x { 
+    position: absolute;
+    top: 0;
+    right: 48px; /* Left of the 64px ship icon stack */
+    color: var(--accent-primary); 
+    font-size: 0.75rem; 
+    font-weight: 700;
+    text-shadow: none;
+    background-color: rgba(0, 0, 0, 0.85);
+    padding: 1px 4px;
+    border-radius: 4px;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    pointer-events: auto;
+    z-index: 40;
+  }
+  
+  /* Positioning Pilot Image BESIDE ship stack (64px offset) */
+  .card-section.left .bg-portrait {
+    left: 64px;
+    opacity: 0.4;
+    width: 48px;
+    height: 48px;
+    mask-image: linear-gradient(to right, black, transparent);
+    -webkit-mask-image: linear-gradient(to right, black, transparent);
+  }
+
+  /* Positioning Pilot Image BESIDE ship stack (64px offset) */
+  .card-section.right .bg-portrait {
+    right: 64px;
+    opacity: 0.4;
+    width: 48px;
+    height: 48px;
+    mask-image: linear-gradient(to left, black, transparent);
+    -webkit-mask-image: linear-gradient(to left, black, transparent);
+  }
+  
+  /* Hide Fleet Comp on Mobile */
+  .fleet-comp { display: none; }
+}

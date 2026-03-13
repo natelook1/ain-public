@@ -1,0 +1,59 @@
+.control-bar-sliders {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 10, 0.8);
+    padding: 10px;
+    border-radius: 8px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    z-index: 1001;
+}
+
+.slider-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #fff;
+}
+
+.slider-container label {
+    font-size: 12px;
+    margin-bottom: 5px;
+}
+
+.slider-container input[type="range"] {
+    -webkit-appearance: none;
+    width: 150px;
+    height: 5px;
+    background: #555;
+    border-radius: 5px;
+    outline: none;
+    opacity: 0.7;
+    -webkit-transition: .2s;
+    transition: opacity .2s;
+}
+
+.slider-container input[type="range"]:hover {
+    opacity: 1;
+}
+
+.slider-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    background: #4a90e2;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.slider-container input[type="range"]::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    background: #4a90e2;
+    border-radius: 50%;
+    cursor: pointer;
+}

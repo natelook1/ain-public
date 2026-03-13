@@ -1,0 +1,296 @@
+/* CSS Variables for Theming */
+:root {
+  /* Spacing & Layout */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Dark Theme (Default) */
+  --bg-primary: #0a0e1a;
+  --bg-secondary: #12182b;
+  --bg-tertiary: #1a2235;
+  --bg-hover: #2a3347;
+  --text-primary: #e0e6f0;
+  --text-secondary: #a0a8b8;
+  --text-muted: #6b7280;
+  --border-color: #2a3347;
+  --accent-primary: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-success: #10b981;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f6;
+  --bg-tertiary: #e5e7eb;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --border-color: #d1d5db;
+  --bg-hover: #d1d5db;
+}
+
+/* Amarr Theme (Gold/Amber) */
+[data-theme="amarr"] {
+  --bg-primary: #140f05;
+  --bg-secondary: #221a0a;
+  --bg-tertiary: #332810;
+  --text-primary: #fef3c7;
+  --text-secondary: #fcd34d;
+  --text-muted: #d97706;
+  --border-color: #92400e;
+  --accent-primary: #f59e0b;
+  --accent-hover: #d97706;
+  --bg-hover: #92400e;
+}
+
+/* Caldari Theme (Steel Blue) */
+[data-theme="caldari"] {
+  --bg-primary: #080c14;
+  --bg-secondary: #0e1420;
+  --bg-tertiary: #151d2e;
+  --text-primary: #dbeafe;
+  --text-secondary: #93c5fd;
+  --text-muted: #60a5fa;
+  --border-color: #1e3a5f;
+  --accent-primary: #3b82f6;
+  --accent-hover: #2563eb;
+  --bg-hover: #1e3a5f;
+}
+
+/* Gallente Theme (Emerald Green) */
+[data-theme="gallente"] {
+  --bg-primary: #05140d;
+  --bg-secondary: #0a2015;
+  --bg-tertiary: #102e1e;
+  --text-primary: #d1fae5;
+  --text-secondary: #6ee7b7;
+  --text-muted: #34d399;
+  --border-color: #065f46;
+  --accent-primary: #10b981;
+  --accent-hover: #059669;
+  --bg-hover: #065f46;
+}
+
+/* Minmatar Theme (Rust/Orange) */
+[data-theme="minmatar"] {
+  --bg-primary: #140a05;
+  --bg-secondary: #22140a;
+  --bg-tertiary: #331e10;
+  --text-primary: #fed7aa;
+  --text-secondary: #fb923c;
+  --text-muted: #ea580c;
+  --border-color: #7c2d12;
+  --accent-primary: #f97316;
+  --accent-hover: #ea580c;
+  --bg-hover: #7c2d12;
+}
+
+/* Triglavian Theme (Deep Crimson) */
+[data-theme="triglavian"] {
+  --bg-primary: #140508;
+  --bg-secondary: #220a10;
+  --bg-tertiary: #331018;
+  --text-primary: #fecdd3;
+  --text-secondary: #fb7185;
+  --text-muted: #f43f5e;
+  --border-color: #881337;
+  --accent-primary: #e11d48;
+  --accent-hover: #be123c;
+  --bg-hover: #881337;
+}
+
+/* ORE Theme (Industrial Yellow) */
+[data-theme="ore"] {
+  --bg-primary: #141005;
+  --bg-secondary: #221c0a;
+  --bg-tertiary: #332a10;
+  --text-primary: #fef9c3;
+  --text-secondary: #fde047;
+  --text-muted: #ca8a04;
+  --border-color: #854d0e;
+  --accent-primary: #eab308;
+  --accent-hover: #ca8a04;
+  --bg-hover: #854d0e;
+}
+
+/* SOE Theme (Silver/Red) */
+[data-theme="soe"] {
+  --bg-primary: #0f0f14;
+  --bg-secondary: #1a1a22;
+  --bg-tertiary: #252530;
+  --text-primary: #f0f0f5;
+  --text-secondary: #b0b0c0;
+  --text-muted: #808090;
+  --border-color: #353545;
+  --accent-primary: #dc2626;
+  --accent-hover: #b91c1c;
+  --bg-hover: #353545;
+}
+
+/* EDENCOM Theme (Cyan/Teal) */
+[data-theme="edencom"] {
+  --bg-primary: #051014;
+  --bg-secondary: #0a1c22;
+  --bg-tertiary: #102a32;
+  --text-primary: #e0f7fa;
+  --text-secondary: #67e8f9;
+  --text-muted: #22d3ee;
+  --border-color: #0e4a5c;
+  --accent-primary: #06b6d4;
+  --accent-hover: #0891b2;
+  --bg-hover: #0e4a5c;
+}
+
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* App Layout */
+.app {
+  height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0; /* Important for flex children to respect parent height */
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  min-height: 0; /* Important for flex children to respect parent height */
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content.starmap-active {
+  overflow: hidden;
+  padding: 0;
+}
+
+/* Filters in map mode - stays in document flow above starmap */
+.main-content.starmap-active .filters-container {
+  flex-shrink: 0; /* Don't shrink */
+  margin: 0;
+  border-radius: 0;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+
+.main-content.starmap-active .starmap-container {
+  flex: 1;
+  min-height: 0;
+}
+
+.main-view-container {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.starmap-wrapper,
+.killfeed-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.starmap-wrapper.hidden,
+.killfeed-wrapper.hidden {
+  display: none;
+}
+
+.killfeed-wrapper.visible {
+  display: block;
+  overflow-y: auto;
+}
+
+.starmap-wrapper.visible {
+  display: block;
+}
+
+
+/* Utility Classes */
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Global ISK/Unit suffix styling for engineering notation */
+.isk-suffix,
+.unit-suffix,
+.unit {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-weight: 500;
+  margin-left: 1px;
+}

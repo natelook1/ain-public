@@ -1,0 +1,84 @@
+{
+  "name": "R2Z2 Monitor Backend",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "r2z2-stats",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "webhookId": "r2z2-stats"
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nlet redis;\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 2000 });\n    \n    // Fetch metrics (cumulative)\n    const metrics = await redis.hgetall('r2z2:metrics');\n    // Fetch adaptive sleep setting\n    const baseSleep = await redis.get('r2z2:base_sleep_ms');\n    if (baseSleep) metrics.adaptive_sleep = baseSleep;\n    \n    // Fetch ALL logs for robust statistical analysis (retrieving full list)\n    // We retrieve 0 to -1 to ensure we have the complete dataset for the 'Average' calculation\n    const logsRaw = await redis.lrange('r2z2:perf_log', 0, -1);\n    \n    // Parse logs, filtering out any corrupt entries\n    const logs = logsRaw.map(log => {\n        try { return JSON.parse(log); } catch(e) { return null; }\n    }).filter(l => l !== null);\n    \n    // Calculate Summary Stats on the FULL dataset (up to 10k+ records if available)\n    const total_runs = logs.length;\n    let ids_checked = 0, total_hits = 0, total_new_items = 0, total_dupes = 0, total_404s = 0, total_errors = 0, total_latency = 0, total_sleep = 0, max_gap_streak = 0, max_success_streak = 0;\n    \n    logs.forEach(l => {\n        const run_checked = (l.found || 0) + (l.not_found || 0) + (l.err || 0);\n        ids_checked += run_checked;\n        total_hits += (l.found || 0);\n        total_new_items += (l.queued || 0);\n        total_dupes += (l.dupes || 0);\n        total_404s += (l.not_found || 0);\n        total_errors += (l.err || 0);\n        total_latency += (l.dur_ms || 0);\n        total_sleep += (l.sleep_ms || 0);\n        if ((l.gap_streak || 0) > max_gap_streak) max_gap_streak = l.gap_streak;\n        if ((l.success_streak || 0) > max_success_streak) max_success_streak = l.success_streak;\n    });\n    \n    const avg_latency_ms = total_runs > 0 ? Math.round(total_latency / total_runs) : 0;\n    const hit_rate = ids_checked > 0 ? ((total_hits / ids_checked) * 100).toFixed(1) + '%' : '0.0%';\n    \n    // --- KPM CALCULATIONS ---\n    let reqs_per_min = 0;\n    let kills_per_min = 0;\n    let current_kpm = 0;\n    \n    // 1. Current KPM: Uses a 15-MINUTE sliding window for stability\n    // This prevents wild flips when a single batch is empty or huge.\n    if (logs.length > 0) {\n        const now = new Date(logs[0].ts).getTime();\n        // 15 minute window for \"Current\" context\n        const shortWindow = now - (15 * 60 * 1000);\n        const recentLogs = logs.filter(l => new Date(l.ts).getTime() >= shortWindow);\n        \n        if (recentLogs.length > 1) {\n            const recentStart = new Date(recentLogs[recentLogs.length - 1].ts).getTime();\n            const recentEnd = new Date(recentLogs[0].ts).getTime();\n            const recentDiffMin = (recentEnd - recentStart) / 60000;\n            if (recentDiffMin > 0.5) { // Ensure at least 30s of data\n                const recentKills = recentLogs.reduce((sum, l) => sum + (l.queued || 0), 0);\n                current_kpm = parseFloat((recentKills / recentDiffMin).toFixed(2));\n            } else {\n                // Fallback for very fresh starts: use the last calculated KPM from the log itself\n                current_kpm = parseFloat(recentLogs[0].kpm || 0);\n            }\n        } else if (recentLogs.length === 1) {\n            current_kpm = parseFloat(recentLogs[0].kpm || 0);\n        }\n    }\n    \n    // 2. Average KPM: Uses the ENTIRE dataset's Active Time\n    // We subtract idle time if possible, or use total wall clock time of the dataset.\n    if (logs.length > 1) {\n        const total_active_ms = total_latency + total_sleep;\n        const active_min = total_active_ms / 60000;\n        \n        if (active_min > 0) {\n            reqs_per_min = parseFloat((ids_checked / active_min).toFixed(1));\n            kills_per_min = parseFloat((total_new_items / active_min).toFixed(2));\n        } else {\n             // Fallback to wall clock if active time isn't calculable\n             const start = new Date(logs[logs.length - 1].ts).getTime();\n             const end = new Date(logs[0].ts).getTime();\n             const diff_min = (end - start) / 60000;\n             if (diff_min > 0) {\n                reqs_per_min = parseFloat((ids_checked / diff_min).toFixed(1));\n                kills_per_min = parseFloat((total_new_items / diff_min).toFixed(2));\n             }\n        }\n    }\n    \n    const current_lag = logs.length > 0 ? (logs[0].lag || 0) : 0;\n    \n    // Additional calculated metrics\n    const error_rate = ids_checked > 0 ? ((total_errors / ids_checked) * 100).toFixed(2) : '0.00';\n    const duplicate_rate = total_hits > 0 ? ((total_dupes / total_hits) * 100).toFixed(2) : '0.00';\n    const api_reliability = ids_checked > 0 ? (((total_hits + total_404s) / ids_checked) * 100).toFixed(1) : '0.0';\n    const network_efficiency = total_runs > 0 ? (total_new_items / total_runs).toFixed(2) : '0.00';\n    const peak_kpm = logs.length > 0 ? Math.max(...logs.map(l => parseFloat(l.kpm) || 0)).toFixed(2) : '0.00';\n    const uptime_minutes = logs.length > 1 ? Math.round((new Date(logs[0].ts).getTime() - new Date(logs[logs.length - 1].ts).getTime()) / 60000) : 0;\n    const avg_sleep_ms = total_runs > 0 ? Math.round(total_sleep / total_runs) : 0;\n    \n    const summary = { \n        total_runs, \n        ids_checked, \n        total_hits, \n        hit_rate, \n        total_new_items, \n        total_dupes, \n        total_404s, \n        total_errors, \n        avg_latency_ms, \n        reqs_per_min, \n        kills_per_min, \n        current_kpm,\n        current_lag, \n        max_gap_streak, \n        max_success_streak,\n        error_rate,\n        duplicate_rate,\n        api_reliability,\n        network_efficiency,\n        peak_kpm,\n        uptime_minutes,\n        avg_sleep_ms \n    };\n    \n    // Check heartbeat\n    const heartbeat = await redis.get('r2z2:ingestion.active');\n    const ttl = await redis.ttl('r2z2:ingestion.active');\n    \n    // We return the last 100 logs to the frontend for detailed charting, but summary uses all.\n    return [{ \n        json: { \n            status: heartbeat ? 'active' : 'inactive',\n            heartbeat_ttl: ttl,\n            metrics: metrics,\n            summary: summary,\n            recent_logs: logs.slice(0, 100)\n        }\n    }];\n} catch (error) {\n    return [{ json: { error: error.message } }];\n} finally {\n    if (redis) await redis.quit();\n}"
+      },
+      "id": "redis-stats",
+      "name": "Get Redis Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Redis Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Redis Stats": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

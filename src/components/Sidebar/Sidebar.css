@@ -1,0 +1,824 @@
+.sidebar {
+  width: 320px;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  transition: width 0.3s ease;
+  position: relative;
+  height: 100%; /* Default full height when stats bar is at top */
+  z-index: 1000; /* Above stats bar */
+}
+
+/* When stats bar is minimized (fixed to bottom), sidebar needs to be shorter */
+.app.stats-minimized .sidebar {
+  height: calc(100% - 60px);
+}
+
+.alliance-list {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1; /* Grow to fill space */
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar.collapsed {
+  width: 80px;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  top: 1rem;
+  right: -20px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: var(--accent-primary);
+  border: 2px solid var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-toggle:hover {
+  background-color: var(--accent-secondary);
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.sidebar-header {
+  padding: 1.5rem 1rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.sidebar-actions-collapsed {
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-clear-selections {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear-selections:hover {
+  background-color: var(--danger);
+  color: white;
+}
+
+.btn-clear-selections:disabled {
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-back-to-top {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-back-to-top:hover {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+  transform: translateX(-50%) scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Expanded sidebar - position above footer */
+.sidebar:not(.collapsed) .btn-back-to-top {
+  bottom: 14rem; /* Adjusted for taller footer */
+}
+
+.sidebar-footer {
+  padding: 0.75rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: auto; /* Push to bottom */
+  flex-shrink: 0;
+  background-color: var(--bg-secondary);
+}
+
+.btn-clear {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear:hover {
+  background-color: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.btn-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-clear:disabled:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+.btn-clear.btn-danger:not(:disabled):hover {
+  background-color: var(--danger);
+  border-color: var(--danger);
+  color: white;
+}
+
+.footer-row {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+  justify-content: center;
+}
+
+/* Import message toast */
+.import-message {
+  position: absolute;
+  bottom: 5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  z-index: 100;
+  white-space: nowrap;
+}
+
+.import-message.success {
+  background-color: var(--success);
+  color: white;
+}
+
+.import-message.error {
+  background-color: var(--danger);
+  color: white;
+}
+
+/* Confirmation dialog */
+.confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.confirm-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.25rem;
+  max-width: 300px;
+  text-align: center;
+}
+
+.confirm-dialog p {
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.btn-cancel {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.btn-confirm-danger {
+  background-color: var(--danger);
+  border: 1px solid var(--danger);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-confirm-danger:hover {
+  background-color: #dc2626;
+  border-color: #dc2626;
+}
+
+.search-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-add {
+  background-color: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  width: 36px;
+  height: 36px;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add:hover {
+  background-color: var(--accent-secondary);
+}
+
+/* Only hide search form in collapsed mode on DESKTOP */
+@media (min-width: 769px) {
+  .sidebar.collapsed .search-form {
+    opacity: 0;
+    pointer-events: none;
+    padding: 0;
+    height: 0;
+    overflow: hidden;
+  }
+}
+
+.search-input {
+  flex: 1;
+  padding: 0.5rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+/* Alliance Search Autocomplete */
+.search-form-container {
+  position: relative;
+}
+
+.alliance-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 0.375rem 0.375rem;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.alliance-search-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.alliance-search-item:last-child {
+  border-bottom: none;
+}
+
+.alliance-search-item:hover {
+  background-color: var(--bg-primary);
+}
+
+.alliance-search-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.alliance-search-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.alliance-search-name {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alliance-search-ticker {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+}
+
+.alliance-search-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.alliance-search-type {
+  font-size: 0.6rem;
+  color: var(--accent-primary);
+  background-color: rgba(59, 130, 246, 0.15);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Divider between alliances and corporations */
+.list-divider {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0.75rem 0 0.25rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.search-error {
+  padding: 0.5rem 1rem;
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+  font-size: 0.875rem;
+  border-left: 3px solid var(--danger);
+  margin: 0 1rem;
+}
+
+.alliance-list {
+  padding: 1rem;
+}
+
+.empty-message {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.alliance-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background-color: transparent;
+  border-radius: 0.375rem;
+  border: none;
+  margin-bottom: 0.5rem;
+  transition: all 0.2s;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+  z-index: 1;
+}
+
+/* The Highlight Card - now sized to match the emblem exactly */
+.alliance-item::before {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+  
+  /* Expanded State: Icon is 48px. Frame it with 54px box (3px padding per side) */
+  width: 54px;
+  height: 54px;
+  /* Centered on the icon's position. */
+  left: 9px; 
+  top: 50%;
+  transform: translateY(-50%);
+  
+  border-radius: 8px;
+  background-color: var(--item-bg-color, var(--bg-tertiary));
+  border: 2px solid transparent;
+  z-index: 0; /* Behind the icon (z-10) */
+  transition: all 0.2s;
+}
+
+/* Hover State on the card */
+.alliance-item:hover::before {
+  background-color: var(--item-bg-color, var(--bg-primary));
+}
+
+/* Active / Lurker States - Apply border to the card */
+.alliance-item.active::before {
+  border-color: var(--alliance-color);
+}
+
+.sidebar.collapsed .alliance-item {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  align-items: center;
+  padding: 0.5rem;
+  margin: 0 0.25rem 0.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.sidebar.collapsed .alliance-list {
+  padding: 1rem 0;
+}
+
+.sidebar.collapsed .list-divider {
+  font-size: 0.5rem;
+}
+
+/* Collapsed State Adjustment */
+.sidebar.collapsed .alliance-item::before {
+  /* Icon is 56px in collapsed mode. Frame it with 64px box. */
+  width: 64px;
+  height: 64px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 10px;
+}
+
+/* Ensure the icon is on top */
+.alliance-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 0.375rem;
+  border: none;
+  transition: all 0.2s;
+  object-fit: cover;
+  position: relative;
+  z-index: 10; /* Strictly on top of the border/highlight */
+  pointer-events: none; /* Let clicks pass through to container if needed */
+}
+
+.sidebar.collapsed .alliance-icon {
+  width: 56px;
+  height: 56px;
+}
+
+.alliance-item.lurker {
+  opacity: 1 !important;
+  z-index: 2;
+}
+
+.alliance-item.lurker::before {
+  border-color: var(--alliance-color);
+  box-shadow: 0 0 15px var(--alliance-color);
+  animation: lurker-pulse 2s infinite;
+}
+
+.alliance-item.lurker .alliance-icon {
+  box-shadow: none;
+}
+
+.lurker-indicator {
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: var(--alliance-color);
+  text-transform: uppercase;
+}
+
+@keyframes lurker-pulse {
+  0% { box-shadow: 0 0 5px var(--alliance-color); }
+  50% { box-shadow: 0 0 20px var(--alliance-color); }
+  100% { box-shadow: 0 0 5px var(--alliance-color); }
+}
+
+.alliance-item.greyed-out {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.alliance-item:hover .alliance-icon {
+  transform: scale(1.05);
+}
+
+.alliance-item:hover {
+  background-color: var(--bg-primary);
+}
+
+.alliance-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.alliance-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alliance-ticker {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+}
+
+.btn-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  transition: all 0.2s;
+}
+
+.alliance-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-lurker {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  transition: all 0.2s;
+}
+
+.btn-lurker:hover {
+  color: var(--accent-primary);
+  background-color: rgba(0, 128, 255, 0.1);
+}
+
+.btn-lurker.active {
+  color: var(--accent-primary);
+  text-shadow: 0 0 5px var(--accent-primary-faded, rgba(0, 128, 255, 0.5));
+}
+
+/* Elevate hovered alliance-item above siblings so tooltip isn't clipped by their stacking context */
+.alliance-item:has(.lurker-tooltip-wrap:hover) {
+  z-index: 100;
+}
+
+/* === LURKER MODE TOOLTIP === */
+.lurker-tooltip-wrap {
+  position: relative;
+}
+
+.lurker-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 230px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.73rem;
+  color: var(--text-primary);
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  line-height: 1.45;
+}
+
+.lurker-tooltip-wrap:hover .lurker-tooltip {
+  display: block;
+}
+
+.lurker-tooltip-title {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--accent-primary);
+  margin-bottom: 0.4rem;
+}
+
+.lurker-tooltip-desc {
+  margin: 0 0 0.5rem;
+  color: var(--text-secondary);
+}
+
+.lurker-tooltip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.lurker-tooltip-list li {
+  color: var(--text-secondary);
+}
+
+.lt-kill   { color: var(--accent-primary); font-weight: 600; }
+.lt-loss   { color: var(--danger);         font-weight: 600; }
+.lt-assist { color: var(--warning, #f59e0b); font-weight: 600; }
+.lt-other  { color: var(--text-muted);     font-weight: 600; }
+
+.alliance-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 0.5rem 1rem 0;
+  text-align: center;
+  transition: opacity 0.2s;
+}
+
+/* Sidebar Footer Legal */
+.sidebar-legal-container {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color); /* Add divider above legal section */
+  background-color: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.btn-legal {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #0e7490; /* cyan-700 */
+  background: none;
+  border: none;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+  justify-content: center;
+}
+
+.btn-legal:hover {
+  color: #22d3ee;
+}
+
+.legal-copyright {
+  font-size: 9px;
+  color: #ffffff; /* White text as requested */
+  font-family: monospace;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0.7; /* Slight opacity to not be too jarring */
+}
+
+/* Collapsed Legal Icon */
+.sidebar-legal-collapsed {
+  margin-top: auto; /* Push to bottom */
+  padding: 1rem 0;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.btn-legal-icon {
+  background: none;
+  border: none;
+  color: #0e7490;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-legal-icon:hover {
+  color: #22d3ee;
+  background-color: rgba(6, 182, 212, 0.1);
+}
+
+/* Mobile Responsive Sidebar */
+@media (max-width: 768px) {
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    z-index: 1002; /* Above header (1001) */
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+    transform: translateX(0);
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar.collapsed {
+    transform: translateX(-100%);
+    width: 320px; /* Keep standard width even when "collapsed" (hidden) so it slides out nicely */
+  }
+
+  /* Adjust toggle button position for mobile so it's visible when sidebar is hidden */
+  .sidebar-toggle {
+    right: -40px; /* Push it out further so it hangs off the hidden sidebar */
+    top: 80px;
+    width: 40px;
+    height: 40px;
+  }
+  
+  /* When sidebar is hidden (collapsed), ensuring the toggle follows the sidebar would hide it too. 
+     Wait, the toggle is *inside* the sidebar container. 
+     If sidebar moves -100%, button moves -100%. 
+     We need the button to be fixed or sticky, or offset enough.
+  */
+}
+
+/* Fix for the toggle button issue mentioned above: 
+   If the sidebar is transformed -100%, the button inside it (at right: -40px) 
+   will be at (Width - 40px) - Width = -40px relative to viewport left edge? 
+   No. transform moves the whole coordinate system.
+   
+   If sidebar is at -320px. Right edge is at 0. 
+   Button at right: -40px means it is at 40px from the right edge.
+   So it should be at X=40px. Visible.
+*/

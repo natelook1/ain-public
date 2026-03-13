@@ -1,0 +1,209 @@
+.activity-chart-wrapper {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+}
+
+.activity-chart-wrapper.minimized {
+  height: 40px;
+  padding: 0;
+}
+
+.chart-tabs-vertical {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.chart-legend-vertical {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.activity-chart-container {
+  --chart-today: #00ccff;
+  --chart-yesterday: #8844ff;
+  --chart-avg: #44ff88;
+  border-radius: 8px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.chart-content {
+  height: 100px;
+  position: relative;
+}
+
+.activity-chart-wrapper.minimized .chart-content {
+  height: 40px;
+}
+
+.chart-tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.chart-tab:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.chart-tab.active {
+  background-color: var(--bg-tertiary);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot.today { background-color: var(--chart-today); }
+.dot.yesterday { background-color: var(--chart-yesterday); }
+.dot.avg { background-color: var(--chart-avg); }
+
+.activity-chart-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ac-line-path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ac-today-line { stroke: var(--chart-today); stroke-width: 2; }
+.ac-yesterday-line { stroke: var(--chart-yesterday); stroke-opacity: 0.6; stroke-dasharray: 4, 4; }
+.ac-avg-line { stroke: var(--chart-avg); stroke-opacity: 0.5; stroke-width: 1; }
+.ac-grid-line { stroke: var(--border-color); stroke-width: 1; stroke-dasharray: 2, 4; }
+.ac-axis-label { font-size: 0.75rem; fill: var(--text-secondary); }
+.ac-y-axis-label { text-anchor: end; }
+.ac-x-axis-label { text-anchor: middle; }
+.ac-heatmap-block { cursor: pointer; transition: opacity 0.2s; }
+.ac-heatmap-block:hover { opacity: 1 !important; stroke: var(--text-primary); stroke-width: 1px; }
+
+.systems-chart-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.5rem 1rem;
+}
+
+.systems-chart-container.minimized {
+  gap: 1px;
+  padding: 0 1rem;
+}
+
+.system-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.systems-chart-container.minimized .system-bar-row {
+  font-size: 0.7rem;
+  gap: 4px;
+}
+
+.system-name {
+  width: 100px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.system-bar-track {
+  flex: 1;
+  height: 10px;
+  background-color: var(--bg-tertiary);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.systems-chart-container.minimized .system-bar-track {
+  height: 4px;
+}
+
+.system-bar-fill {
+  height: 100%;
+  background-color: var(--chart-today);
+}
+
+.system-count {
+  width: 40px;
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.systems-chart-container.minimized .system-count {
+  width: 25px;
+}
+
+.activity-chart-wrapper.minimized .chart-tabs-vertical {
+  flex-direction: row;
+}
+
+.activity-chart-wrapper.minimized .chart-legend-vertical {
+  flex-direction: row;
+}
+
+.activity-chart-wrapper.minimized .chart-tab {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.activity-chart-wrapper.minimized .legend-item {
+  font-size: 0.7rem;
+  gap: 0.1rem;
+}
+
+.activity-chart-wrapper.minimized .dot {
+  width: 6px;
+  height: 6px;
+}
+
+.activity-chart-wrapper.minimized .chart-tabs-vertical,
+.activity-chart-wrapper.minimized .chart-legend-vertical {
+  opacity: 0.2;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.activity-chart-wrapper.minimized:hover .chart-tabs-vertical,
+.activity-chart-wrapper.minimized:hover .chart-legend-vertical {
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .activity-chart-wrapper.minimized .chart-tabs-vertical {
+    display: none;
+  }
+}

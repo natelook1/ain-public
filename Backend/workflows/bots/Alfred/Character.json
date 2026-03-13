@@ -1,0 +1,188 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "character_name",
+              "type": "any"
+            },
+            {
+              "name": "include_killmails",
+              "type": "boolean"
+            },
+            {
+              "name": "depth_level"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -320,
+        -96
+      ],
+      "id": "5ae58dcc-1ce9-465d-b5a9-f7171027701c",
+      "name": "CHARACTER"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combined Data Merger (v1.0)\n// This node simply merges the two parallel data streams (ESI and zKill) \n// into a single object for the final analysis node.\n\ntry {\n  const allInputs = $input.all();\n  let combinedData = {};\n\n  // Loop through inputs and merge them.\n  // This handles cases where one branch might fail.\n  for (const item of allInputs) {\n    combinedData = {\n      ...combinedData,\n      ...item.json\n    };\n  }\n\n  // Add a simple integration quality check\n  const hasChar = !!(combinedData.character_esi && combinedData.character_esi.corporation_id);\n  const hasZkill = !!(combinedData.data && combinedData.data.stats);\n\n  combinedData.data_integration = {\n    combined_at: new Date().toISOString(),\n    has_character_data: hasChar,\n    has_zkill_data: hasZkill,\n    integration_quality: (hasChar && hasZkill) ? 'complete' : 'partial'\n  };\n  \n  if (combinedData.data_integration.integration_quality === 'complete') {\n    console.log(`✅ Data combination complete for ${combinedData.character_name}`);\n  } else {\n    console.warn(`⚠️ Data combination is partial for ${combinedData.character_name}. Has ESI: ${hasChar}, Has zKill: ${hasZkill}`);\n  }\n\n  return [{ json: combinedData }];\n\n} catch (error) {\n  console.error('❌ Data combination failed:', error.message);\n  return [{\n    json: {\n      ...$input.first().json,\n      combination_error: error.message,\n      data_integration: {\n        combined_at: new Date().toISOString(),\n        integration_quality: 'failed',\n      },\n    },\n  }];\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -96
+      ],
+      "id": "37c6196a-43c4-4def-96a9-40e405bce254",
+      "name": "Combined Data Merger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Character Pull v2.5 – With Corp/Alliance ESI Fetching\nconst Redis = require('ioredis');\nconst axios = require('axios');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n\n// --- Simple Levenshtein distance (no deps)\nfunction levenshtein(a, b) {\n  if (a === b) return 0;\n  const m = [];\n  for (let i = 0; i <= b.length; i++) m[i] = [i];\n  for (let j = 0; j <= a.length; j++) m[0][j] = j;\n  for (let i = 1; i <= b.length; i++) {\n    for (let j = 1; j <= a.length; j++) {\n      m[i][j] = b[i - 1] === a[j - 1]\n        ? m[i - 1][j - 1]\n        : Math.min(m[i - 1][j - 1] + 1, m[i][j - 1] + 1, m[i - 1][j] + 1);\n    }\n  }\n  return m[b.length][a.length];\n}\n\ntry {\n  const input = $input.first().json;\n  const characterNameInput = input.character_name?.trim();\n  if (!characterNameInput) throw new Error('Character name is required in the input.');\n\n  console.log(`🔎 Intel process started for: \"${characterNameInput}\"`);\n  let characterId = null;\n  let characterName = characterNameInput;\n  let lookupSource = '';\n\n  // --- Step 1: Redis cache check\n  const cachedId = await redis.hget('eve:name_to_id', characterName.toLowerCase());\n  if (cachedId) {\n    characterId = parseInt(cachedId, 10);\n    lookupSource = 'Redis Cache';\n    console.log(`✅ Cache HIT for \"${characterName}\" → ID ${characterId}`);\n  } else {\n    console.log(`- Cache MISS for \"${characterName}\". Querying ESI...`);\n    const esiUrl = 'https://esi.evetech.net/latest/universe/ids/?datasource=tranquility';\n    const esiRes = await axios.post(esiUrl, [characterName], {\n      headers: { 'User-Agent': 'Alfred EVE Intel Tool', 'Content-Type': 'application/json' },\n      validateStatus: s => s === 200 || s === 404\n    }).catch(() => ({ data: {} }));\n\n    const chars = esiRes.data.characters || [];\n    if (chars.length > 0) {\n      const resolved = chars[0];\n      characterId = resolved.id;\n      characterName = resolved.name;\n      lookupSource = 'ESI API (/universe/ids)';\n      console.log(`✅ ESI found ID ${characterId} for \"${characterName}\".`);\n      await redis\n        .pipeline()\n        .hset('eve:name_to_id', characterName.toLowerCase(), String(characterId))\n        .hset('eve:id_to_name', String(characterId), characterName)\n        .exec();\n    } else {\n      // --- Step 2: Local fuzzy matching from Redis\n      console.log(`⚠️ ESI lookup failed. Attempting local fuzzy match...`);\n      const allNames = await redis.hkeys('eve:name_to_id');\n      const candidates = allNames\n        .map(n => ({ name: n, score: levenshtein(characterName.toLowerCase(), n) }))\n        .sort((a, b) => a.score - b.score)\n        .slice(0, 5);\n\n      if (candidates.length && candidates[0].score <= Math.max(2, Math.floor(characterName.length * 0.3))) {\n        const suggestions = candidates.map(c => c.name);\n        throw new Error(JSON.stringify({\n          errorType: 'CharacterNotFoundWithLocalSuggestions',\n          message: `Character \"${characterName}\" could not be resolved. Closest matches found in Redis.`,\n          suggestions\n        }));\n      }\n      throw new Error(`Character \"${characterName}\" could not be resolved by ESI or local cache.`);\n    }\n  }\n\n  // --- Step 3: Fetch character details and history\n  const charUrl = `https://esi.evetech.net/latest/characters/${characterId}/?datasource=tranquility`;\n  const histUrl = `https://esi.evetech.net/latest/characters/${characterId}/corporationhistory/?datasource=tranquility`;\n\n  const [charRes, histRes] = await Promise.all([\n    this.helpers.httpRequest({ url: charUrl, json: true }),\n    this.helpers.httpRequest({ url: histUrl, json: true })\n  ]);\n\n  const corpId = charRes.corporation_id;\n  const allianceId = charRes.alliance_id || null;\n\n  // --- Step 4: Fetch Corporation Details from ESI\n  console.log(`📊 Fetching corporation ${corpId} from ESI...`);\n  let corpData = { id: corpId };\n  try {\n    const corpUrl = `https://esi.evetech.net/latest/corporations/${corpId}/?datasource=tranquility`;\n    const corpRes = await this.helpers.httpRequest({ url: corpUrl, json: true });\n    corpData = {\n      id: corpId,\n      name: corpRes.name,\n      ticker: corpRes.ticker,\n      member_count: corpRes.member_count,\n      ceo_id: corpRes.ceo_id,\n      creator_id: corpRes.creator_id,\n      date_founded: corpRes.date_founded,\n      description: corpRes.description,\n      home_station_id: corpRes.home_station_id,\n      tax_rate: corpRes.tax_rate,\n      url: corpRes.url\n    };\n    console.log(`✅ Corporation: ${corpData.name} [${corpData.ticker}]`);\n  } catch (corpError) {\n    console.warn(`⚠️ Failed to fetch corporation ${corpId}:`, corpError.message);\n  }\n\n  // --- Step 5: Fetch Alliance Details from ESI\n  let allianceData = {};\n  if (allianceId) {\n    console.log(`🛡️ Fetching alliance ${allianceId} from ESI...`);\n    try {\n      const allianceUrl = `https://esi.evetech.net/latest/alliances/${allianceId}/?datasource=tranquility`;\n      const allianceRes = await this.helpers.httpRequest({ url: allianceUrl, json: true });\n      allianceData = {\n        id: allianceId,\n        name: allianceRes.name,\n        ticker: allianceRes.ticker,\n        date_founded: allianceRes.date_founded,\n        creator_id: allianceRes.creator_id,\n        creator_corporation_id: allianceRes.creator_corporation_id,\n        executor_corporation_id: allianceRes.executor_corporation_id\n      };\n      console.log(`✅ Alliance: ${allianceData.name} [${allianceData.ticker}]`);\n    } catch (allianceError) {\n      console.warn(`⚠️ Failed to fetch alliance ${allianceId}:`, allianceError.message);\n    }\n  }\n\n  const output = {\n    ...input,\n    character_name: characterName,\n    character_id: characterId,\n    lookup_source: lookupSource,\n    character_esi: charRes,\n    corporation_esi: corpData,\n    alliance_esi: allianceData,\n    corporation_history_esi: histRes,\n    alliance_id: allianceId\n  };\n\n  console.log(`✅ Character ESI intel complete for \"${characterName}\".`);\n  return [{ json: output }];\n\n} catch (error) {\n  console.error('❌ Character Pull failed:', error.message);\n  let parsed = { message: error.message };\n  try { parsed = JSON.parse(error.message); } catch {}\n  return [{\n    json: {\n      ...$input.first().json,\n      output: parsed.errorType?.includes('Suggestion') ? 'fuzzy' : 'error',\n      character_intel_error: parsed.message || error.message,\n      suggested_names: parsed.suggestions || null,\n      character_esi: null,\n      corporation_esi: null,\n      alliance_esi: null\n    }\n  }];\n} finally {\n  if (redis.status === 'ready') await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        -192
+      ],
+      "id": "9cdc8d45-929f-4d30-b481-9e97ea164cc5",
+      "name": "Character Pull"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        336,
+        -96
+      ],
+      "id": "2bd672f7-5fd6-4e94-aad8-db19a70e6e23",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Local Zkill Cache Pull - Resilient Data Fill (V2.4: Corrected Redis Keys + Merged K/L)\nconst Redis = require('ioredis');\nconst axios = require('axios');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 10000 });\nlet lookupSource = 'API_Primary_Local_Fallbacks';\n\n// Define input outside the try block for scope access\nconst input = $input.first().json; \n\ntry {\n    const characterName = input.character_name;\n\n    // --- Resolve Character ID directly from cache using input name ---\n    const cachedId = await redis.hget('eve:name_to_id', characterName.toLowerCase());\n    const characterId = cachedId ? parseInt(cachedId, 10) : null;\n    \n    if (!characterName) {\n        throw new Error('Character name is required from prior steps.');\n    }\n    if (!characterId) { \n        throw new Error(`Character ID not found in cache for name: ${characterName}. Character Pull node may have failed or cache is empty.`);\n    }\n\n    console.log(`=== ZKILL RESILIENT PULL START for: ${characterName} (ID: ${characterId}) ===`);\n    let zkillStats = { info: { id: characterId, name: characterName } };\n    let recentKillmails = [];\n    let needsAPI = false;\n    let kmSource = 'unknown'; // To track where killmails came from\n\n    // --- 1. Attempt to retrieve full stats object from cache ---\n    const fullStatsKey = `intel:zkill:fullstats:${characterId}`;\n    const cachedFullStats = await redis.get(fullStatsKey);\n\n    if (cachedFullStats) {\n        zkillStats = JSON.parse(cachedFullStats);\n        lookupSource = 'Redis Cache (Full)';\n        console.log(`✅ Cache HIT for full stats.`);\n    } else {\n        // --- 2. Fallback to local basic stats ---\n        const localStatsKey = `intel:stats:character:${characterId}`;\n        const localStatsRaw = await redis.hgetall(localStatsKey);\n\n        if (Object.keys(localStatsRaw).length > 0) {\n            zkillStats = {\n                shipsDestroyed: parseInt(localStatsRaw.kill_count_total || 0, 10),\n                shipsLost: parseInt(localStatsRaw.loss_count_total || 0, 10),\n                valueDestroyed: parseFloat(localStatsRaw.value_destroyed || 0),\n                valueLost: parseFloat(localStatsRaw.value_lost || 0),\n                info: zkillStats.info,\n                topLists: [], \n                groups: {}, \n            };\n            lookupSource = 'Redis Cache (Partial)';\n            needsAPI = true;\n            console.log(`⚠️ Full cache MISS. Using partial local stats and flagging for API fill.`);\n        } else {\n            needsAPI = true;\n            console.log(`❌ No local zKill data found. Flagging for full API fetch.`);\n        }\n    }\n    \n    // --- 3. External API Call (Conditional, for stats) ---\n    if (needsAPI) {\n        try {\n            const statsUrl = `https://zkillboard.com/api/stats/characterID/${characterId}/`;\n            const statsResponse = await axios.get(statsUrl, { \n                headers: { 'User-Agent': 'Alfred EVE Intel Tool' }, \n                timeout: 15000 \n            });\n            \n            const apiStats = statsResponse.data;\n            \n            // Merge API stats over our partial stats\n            zkillStats = {\n                ...zkillStats,\n                ...apiStats,\n                info: apiStats.info || zkillStats.info,\n            };\n            \n            await redis.set(fullStatsKey, JSON.stringify(zkillStats), 'EX', 3600); \n            lookupSource = (lookupSource.includes('Partial')) ? 'API Fill/Merge' : 'API Primary';\n            console.log(`✅ API fetch succeeded. Data merged and full cache updated.`);\n\n        } catch (apiError) {\n            console.warn(`❌ External API fetch failed (${apiError.message}). Using available local data.`);\n        }\n    }\n\n    // --- 4. Fetch Recent Killmails (3-STAGE FALLBACK) ---\n    const killsKey = `intel:kills:character:${characterId}`;\n    const lossesKey = `intel:losses:character:${characterId}`;\n    const tempKey = `intel:temp:recent:${characterId}:${Math.floor(Math.random() * 10000)}`;\n    \n    let recentEventIds = [];\n    \n    try {\n        // 4a. Try to merge local kills and losses\n        console.log(`[KM PULL] Checking local keys: ${killsKey} and ${lossesKey}`);\n        await redis.zunionstore(tempKey, 2, killsKey, lossesKey, 'AGGREGATE', 'MAX');\n        await redis.expire(tempKey, 10); \n        recentEventIds = await redis.zrevrange(tempKey, 0, 24); // Get top 25\n\n        if (recentEventIds && recentEventIds.length > 0) {\n            // 4b. Fetch data for the merged IDs from *our* cache\n            const killData = await redis.hmget('intel:kill:data', ...recentEventIds);\n            recentKillmails = killData.filter(Boolean).map(JSON.parse);\n            kmSource = 'Redis Cache (Merged K/L)';\n            console.log(`✅ Retrieved ${recentKillmails.length} recent killmails from local index (merged K/L).`);\n        } else {\n            // 4c. Fallback to zKillboard API (if local keys are empty)\n            console.log(`⚠️ No recent killmails in local index. Fetching from zKill API (/recent/)...`);\n            try {\n                const kmUrlRecent = `https://zkillboard.com/api/kills/characterID/${characterId}/recent/`;\n                const kmResponseRecent = await axios.get(kmUrlRecent, {\n                    headers: { 'User-Agent': 'Alfred EVE Intel Tool' },\n                    timeout: 10000\n                });\n                \n                if (Array.isArray(kmResponseRecent.data) && kmResponseRecent.data.length > 0) {\n                    recentKillmails = kmResponseRecent.data.slice(0, 25); // Take top 25\n                    kmSource = 'zKill API (Recent)';\n                    console.log(`✅ Retrieved ${recentKillmails.length} recent killmails from zKill API (/recent/).`);\n                } else {\n                    // 4d. FINAL FALLBACK: Try the main zKill API endpoint (/limit/25/)\n                    console.log(`⚠️ /recent/ endpoint was empty. Trying zKill API (/limit/25/)...`);\n                    const kmUrlLimit = `https://zkillboard.com/api/kills/characterID/${characterId}/limit/25/`;\n                    const kmResponseLimit = await axios.get(kmUrlLimit, {\n                        headers: { 'User-Agent': 'Alfred EVE Intel Tool' },\n                        timeout: 10000\n                    });\n\n                    if (Array.isArray(kmResponseLimit.data) && kmResponseLimit.data.length > 0) {\n                        recentKillmails = kmResponseLimit.data; // Already limited\n                        kmSource = 'zKill API (Limit 25)';\n                        console.log(`✅ Retrieved ${recentKillmails.length} killmails from zKill API (/limit/25/).`);\n                    } else {\n                        kmSource = 'zKill API (All Empty)';\n                        console.log('⚠️ zKill API returned no killmails for this character from any endpoint.');\n                    }\n                }\n            } catch (kmError) {\n                kmSource = 'API Error';\n                console.warn(`❌ zKill API fetch for killmails failed: ${kmError.message}`);\n            }\n        }\n    } catch (redisError) {\n        console.error(`[KM PULL] Redis ZUNIONSTORE failed: ${redisError.message}.`);\n        kmSource = 'API Fallback (Redis Error)';\n        // In this case, we'd want to duplicate the API fallback logic here, but for now we'll just log.\n    }\n\n    // --- 5. Assemble Output ---\n    const output = {\n        ...input,\n        data: {\n            stats: zkillStats,\n            recent_killmails: recentKillmails\n        },\n        zkill_source: lookupSource,\n        killmail_source: kmSource,\n        zkill_fetched_at: new Date().toISOString(),\n    };\n\n    console.log(`📊 Zkill data pulled. Final Source: ${lookupSource} | KM Source: ${kmSource}`);\n    \n    return [{ json: output }];\n\n} catch (error) {\n    console.error('❌ Zkill pull CRITICAL failure:', error.message);\n    \n    const safeInput = $input.first().json;\n    const safeCharacterId = null;\n    const safeCharacterName = safeInput.character_name || 'unknown';\n    \n    return [{ \n        json: { \n            ...safeInput,\n            data: {\n                stats: {\n                    shipsDestroyed: 0,\n                    shipsLost: 0,\n                    info: { id: safeCharacterId, name: safeCharacterName },\n                    topLists: [],\n                    groups: {}\n                },\n                recent_killmails: []\n            },\n            zkill_error: error.message,\n            zkill_source: 'critical_failure'\n        } \n    }];\n} finally {\n    if (redis.status === 'ready') await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        0
+      ],
+      "id": "f2913519-721e-470f-a3e5-e095476a887a",
+      "name": "Local Zkill Cache Pull"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Input Validator - Handles Single OR Batch Character Intel\nconst input = $input.first().json;\n\nconsole.log('=== ENHANCED INTEL SUBWORKFLOW INPUT VALIDATION ===');\nconsole.log('Received input:', JSON.stringify(input, null, 2));\n\n// Determine if this is single or batch processing\nlet characterNames = [];\nlet isBatchMode = false;\n\n// Priority: character_names array takes precedence\nif (input.character_names && Array.isArray(input.character_names)) {\n  characterNames = input.character_names;\n  isBatchMode = true;\n  console.log(`📊 Batch mode detected: ${characterNames.length} characters`);\n} else if (input.character_name && typeof input.character_name === 'string') {\n  characterNames = [input.character_name];\n  isBatchMode = false;\n  console.log(`👤 Single mode detected: ${input.character_name}`);\n} else {\n  return [{\n    json: {\n      error: true,\n      message: 'Missing character input. Provide either character_name (string) or character_names (array)',\n      required_input: {\n        character_name: 'string (single character)', \n        character_names: 'array (batch processing)'\n      },\n      received_input: input\n    }\n  }];\n}\n\n// Validate and clean character names\nconst cleanedNames = [];\nconst invalidNames = [];\n\nfor (const name of characterNames) {\n  if (!name || typeof name !== 'string') {\n    invalidNames.push(`Invalid name: ${name}`);\n    continue;\n  }\n  \n  const cleanName = name.trim();\n  if (cleanName.length === 0) {\n    invalidNames.push(`Empty name: \"${name}\"`);\n    continue;\n  }\n  \n  if (cleanName.length > 37) {\n    invalidNames.push(`Name too long: \"${cleanName}\" (${cleanName.length} chars, max 37)`);\n    continue;\n  }\n  \n  cleanedNames.push(cleanName);\n}\n\n// Check for validation errors\nif (cleanedNames.length === 0) {\n  return [{\n    json: {\n      error: true,\n      message: 'No valid character names found',\n      invalid_names: invalidNames,\n      received_input: input\n    }\n  }];\n}\n\n// Log validation warnings\nif (invalidNames.length > 0) {\n  console.warn(`⚠️ ${invalidNames.length} invalid names skipped:`, invalidNames);\n}\n\n// Check batch size limits\nconst MAX_BATCH_SIZE = 10; // Reasonable limit to prevent overload\nif (cleanedNames.length > MAX_BATCH_SIZE) {\n  return [{\n    json: {\n      error: true,\n      message: `Batch size limit exceeded. Maximum ${MAX_BATCH_SIZE} characters, received ${cleanedNames.length}`,\n      suggested_batches: Math.ceil(cleanedNames.length / MAX_BATCH_SIZE),\n      received_input: input\n    }\n  }];\n}\n\nconsole.log(`✅ Input validated successfully:`);\nconsole.log(`   - Mode: ${isBatchMode ? 'Batch' : 'Single'}`);\nconsole.log(`   - Valid names: ${cleanedNames.length}`);\nconsole.log(`   - Invalid names: ${invalidNames.length}`);\nconsole.log(`   - Names: ${cleanedNames.join(', ')}`);\n\n// Return validated input with batch metadata\nreturn [{\n  json: {\n    // Processing configuration\n    is_batch_mode: isBatchMode,\n    character_names: cleanedNames,\n    batch_size: cleanedNames.length,\n    \n    // For backward compatibility\n    character_name: cleanedNames[0], // First name for single-mode compatibility\n    \n    // Validation metadata\n    original_input: input,\n    validation_timestamp: new Date().toISOString(),\n    subworkflow_version: '2.1_batch_enabled',\n    validation_summary: {\n      total_requested: characterNames.length,\n      valid_names: cleanedNames.length,\n      invalid_names: invalidNames.length,\n      skipped_names: invalidNames\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        -96
+      ],
+      "id": "cdd7675e-f342-41bc-b1ac-b9323a438e99",
+      "name": "Enhanced Input Validator"
+    },
+    {
+      "parameters": {
+        "jsCode": "// AUGMENTED NODE (v4.4 - Combined Fixes)\n// - FIX 1: Checks for capital usage in lifetime stats (`stats.groups`)\n// - FIX 2: Falls back to lifetime `stats.labels` for security analysis if recent killmails are empty.\n// - FIX 3: Lowered `isWhOperator` threshold from 0.5 (50%) to 0.3 (30%).\n\nconst Redis = require('ioredis');\nlet redis;\n\ntry {\n  const input = $input.first().json;\n  if (!input || !input.character_esi) {\n    throw new Error('Input is missing critical ESI character data.');\n  }\n\n  redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n  await redis.ping();\n\n  console.log('[Final Assembly] Starting analysis for:', input.character_name);\n\n  const characterId = input.character_id;\n  // Use the killmails from the resilient fetcher (could be from Redis or API)\n  const killmails = input.data.recent_killmails || [];\n  // Use the stats from the resilient fetcher (could be from Redis or API)\n  const stats = input.data.stats || { shipsDestroyed: 0, shipsLost: 0, groups: {} };\n  \n  // --- 1. SDE Enhancement (Resolving missing IDs from ESI data) ---\n  const idsToResolve = new Set();\n  if (input.corporation_esi.ceo_id) idsToResolve.add(input.corporation_esi.ceo_id);\n  if (input.corporation_esi.home_station_id) idsToResolve.add(input.corporation_esi.home_station_id);\n  if (input.alliance_esi.executor_corporation_id) idsToResolve.add(input.alliance_esi.executor_corporation_id);\n  if (input.character_esi.race_id) idsToResolve.add(input.character_esi.race_id);\n  if (input.character_esi.bloodline_id) idsToResolve.add(input.character_esi.bloodline_id);\n  if (Array.isArray(input.corporation_history_esi)) {\n      input.corporation_history_esi.forEach(rec => idsToResolve.add(rec.corporation_id));\n  }\n\n  // --- Pre-cache names we know we'll need from recent killmails ---\n  // This avoids slow, individual lookups inside the analysis loop\n  for (const km of killmails) {\n      if (km.victim) {\n          // zKill API uses shipTypeID, our cache uses ship_type_id\n          idsToResolve.add(km.victim.shipTypeID || km.victim.ship_type_id);\n          idsToResolve.add(km.victim.character_id);\n      }\n      if (km.attackers) {\n          km.attackers.forEach(a => idsToResolve.add(a.ship_type_id || a.shipTypeID));\n      }\n      idsToResolve.add(km.solar_system_id);\n  }\n  idsToResolve.delete(undefined); // Clean up any undefined IDs\n  idsToResolve.delete(null);\n\n  let idNameMap = new Map();\n  if (idsToResolve.size > 0) {\n    const idArray = Array.from(idsToResolve).map(String); // Ensure all IDs are strings for redis\n    const nameResults = await redis.hmget('eve:id_to_name', ...idArray);\n    idNameMap = new Map(idArray.map((id, i) => [Number(id), nameResults[i] || `ID ${id}`])); // Store keys as numbers for lookup\n  }\n  console.log(`[Final Assembly] Resolved ${idNameMap.size} SDE/KM IDs from local cache.`);\n\n  // Enhance ESI objects with resolved names\n  const enhancedCharacter = {\n    ...input.character_esi,\n    race_name: idNameMap.get(input.character_esi.race_id),\n    bloodline_name: idNameMap.get(input.character_esi.bloodline_id)\n  };\n  const enhancedCorporation = {\n    ...input.corporation_esi,\n    ceo_name: idNameMap.get(input.corporation_esi.ceo_id),\n    home_station_name: idNameMap.get(input.corporation_esi.home_station_id)\n  };\n  const enhancedAlliance = {\n    ...input.alliance_esi,\n    executor_corporation_name: idNameMap.get(input.alliance_esi.executor_corporation_id)\n  };\n  const enhancedCorpHistory = Array.isArray(input.corporation_history_esi) \n    ? input.corporation_history_esi.map(rec => ({\n        ...rec,\n        corporation_name: idNameMap.get(rec.corporation_id)\n      }))\n    : [];\n\n  // Pass the resolved names to the generator node, nested inside 'stats.info'\n  // so the generator's \"recent activity\" loop can use it.\n  if (stats.info) {\n    stats.info.idNameMap = Object.fromEntries(idNameMap);\n  } else {\n    stats.info = { idNameMap: Object.fromEntries(idNameMap) };\n  }\n\n  // --- 2. Killmail-Based Analysis (Top Ships, Systems, Threat) ---\n  const shipAnalysis = { kills: {}, losses: {} };\n  const systemAnalysis = { kills: {} };\n  const securityAnalysis = { highsec: 0, lowsec: 0, nullsec: 0, wormhole: 0 };\n  let capitalUsage = false;\n  const CAPITAL_CLASSES_BY_NAME = ['carrier', 'dreadnought', 'force_auxiliary', 'supercarrier', 'titan', 'capital_industrial', 'lancer_dreadnought'];\n  const CAPITAL_CLASSES_BY_ZKILL_NAME = ['Carrier', 'Dreadnought', 'Force Auxiliary', 'Supercarrier', 'Titan', 'Capital Industrial Ship', 'Lancer Dreadnought'];\n\n  // Helper function to get ship class from our ingested data OR zKill API data\n  const getShipClass = (km) => {\n    if (km.victim_ship_class) return km.victim_ship_class; // From our enriched data\n    if (km.victim?.shipTypeID) {\n        const name = idNameMap.get(km.victim.shipTypeID);\n        if (name && CAPITAL_CLASSES_BY_ZKILL_NAME.includes(name)) {\n            // This is imperfect but good for cap flagging\n            return name.toLowerCase().replace(/ /g, '_');\n        }\n    }\n    return 'unknown'; // Default\n  };\n\n  const systemDetailsCache = new Map();\n  const hasRecentActivity = killmails.length > 0;\n\n  if (hasRecentActivity) {\n      console.log(`[Final Assembly] Analyzing ${killmails.length} recent killmails...`);\n      for (const km of killmails) {\n        const isLoss = (km.victim.character_id === characterId);\n        \n        if (isLoss) {\n          const shipClass = getShipClass(km);\n          shipAnalysis.losses[shipClass] = (shipAnalysis.losses[shipClass] || 0) + 1;\n          if (CAPITAL_CLASSES_BY_NAME.includes(shipClass)) capitalUsage = true;\n\n        } else {\n          const attacker = km.attackers.find(a => a.character_id === characterId);\n          if (!attacker) continue;\n\n          let shipName = 'unknown';\n          const shipTypeID = attacker.ship_type_id || attacker.shipTypeID;\n          if(shipTypeID) {\n            const name = idNameMap.get(shipTypeID);\n            if (name) {\n              shipName = name;\n              if (CAPITAL_CLASSES_BY_ZKILL_NAME.includes(name)) capitalUsage = true;\n            }\n          }\n          shipAnalysis.kills[shipName] = (shipAnalysis.kills[shipName] || 0) + 1;\n\n          // Get system name\n          let systemName = 'Unknown System';\n          const solarSystemID = km.solar_system_id || km.solarSystemID;\n          if(solarSystemID) {\n            const name = idNameMap.get(solarSystemID);\n            if (name) systemName = name;\n          }\n          systemAnalysis.kills[systemName] = (systemAnalysis.kills[systemName] || 0) + 1;\n\n          // Get space type\n          if (km.space_type) { // This field only exists on OUR cached killmails\n             switch (km.space_type) {\n              case 'highsec': securityAnalysis.highsec++; break;\n              case 'lowsec': securityAnalysis.lowsec++; break;\n              case 'nullsec': securityAnalysis.nullsec++; break;\n              case 'wormhole': securityAnalysis.wormhole++; break;\n            }\n          } else if (solarSystemID) {\n            // Fallback: Get security from system details\n            let details = systemDetailsCache.get(solarSystemID);\n            if (!details) {\n                const detailsStr = await redis.hget('eve:system_details', solarSystemID);\n                if (detailsStr) {\n                    details = JSON.parse(detailsStr);\n                    systemDetailsCache.set(solarSystemID, details);\n                }\n            }\n            \n            if (details) {\n              if (details.securityClass === 'highsec') securityAnalysis.highsec++;\n              else if (details.securityClass === 'lowsec') securityAnalysis.lowsec++;\n              else if (details.securityClass === 'nullsec') securityAnalysis.nullsec++;\n              else securityAnalysis.wormhole++; // Covers WH and others\n            }\n          }\n        }\n      }\n  } else {\n      console.log(\"[Final Assembly] No recent killmails found. Using LIFETIME stats for security analysis.\");\n      // --- FALLBACK LOGIC ---\n      // Use the zKill lifetime stats as a fallback\n      const locLabels = stats?.labels || {};\n      securityAnalysis.highsec = locLabels['loc:highsec']?.shipsDestroyed || 0;\n      securityAnalysis.lowsec = locLabels['loc:lowsec']?.shipsDestroyed || 0;\n      securityAnalysis.nullsec = locLabels['loc:nullsec']?.shipsDestroyed || 0;\n      securityAnalysis.wormhole = locLabels['loc:w-space']?.shipsDestroyed || 0;\n      // --- END FALLBACK LOGIC ---\n  }\n\n\n  // --- LIFETIME CAPITAL CHECK ---\n  // After checking recent KMs, check lifetime stats from zKill `stats.groups`\n  if (!capitalUsage && stats.groups) {\n      const capitalGroupIDs = [\n          '30', // Titan\n          '485', // Dreadnought\n          '547', // Carrier\n          '659', // Supercarrier\n          '883', // Capital Industrial Ship\n          '1538', // Force Auxiliary\n          '4594' // Lancer Dreadnought\n      ];\n\n      for (const groupID of capitalGroupIDs) {\n          if (stats.groups[groupID]) {\n              // Check if they have *any* kills or losses with this group\n              if ((stats.groups[groupID].shipsDestroyed || 0) > 0 || (stats.groups[groupID].shipsLost || 0) > 0) {\n                  capitalUsage = true;\n                  console.log(`[Final Assembly] Capital usage confirmed from LIFETIME stats (GroupID: ${groupID}).`);\n                  break; // Found one, no need to check more\n              }\n          }\n      }\n  }\n  // --- END LIFETIME CHECK ---\n\n\n  // Convert maps to sorted arrays\n  const formatAnalysis = (obj) => Object.entries(obj)\n    .map(([name, count]) => ({ name, count }))\n    .sort((a, b) => b.count - a.count);\n\n  const topKillsShips = formatAnalysis(shipAnalysis.kills).slice(0, 5);\n  const topLossesShips = formatAnalysis(shipAnalysis.losses).slice(0, 5);\n  const topSystems = formatAnalysis(systemAnalysis.kills).slice(0, 10);\n\n  // --- 3. Threat Assessment ---\n  let threatLevel = 'Low';\n  let reasons = [];\n\n  const totalKills = stats.shipsDestroyed || 0;\n  const totalLosses = stats.shipsLost || 0;\n  const whKills = securityAnalysis.wormhole;\n  // Use the sum of the analysis object for total activity\n  const totalActivity = whKills + securityAnalysis.nullsec + securityAnalysis.lowsec + securityAnalysis.highsec;\n  \n  // --- THIS IS THE FIX ---\n  // Lowered threshold from 0.5 to 0.3 (30%)\n  const whPercentage = totalActivity > 0 ? (whKills / totalActivity) : 0;\n  // Also require a minimum number of kills to be flagged, to avoid noise\n  const isWhOperator = whPercentage >= 0.30 && totalKills > 10;\n  // --- END FIX ---\n\n  if (totalKills > 1000) reasons.push(\"High lifetime kill count (1000+)\");\n  if (capitalUsage) reasons.push(\"Capital ship usage detected (lifetime or recent)\");\n  // Updated reason text to be more accurate\n  if (isWhOperator) reasons.push(\"Primarily a Wormhole operator (>= 30% activity)\");\n\n  if (isWhOperator && capitalUsage) threatLevel = 'Critical';\n  else if (totalKills > 2000 || (isWhOperator && totalKills > 100)) threatLevel = 'High';\n  else if (totalKills > 500) threatLevel = 'Medium';\n  else if (totalKills === 0 && totalLosses === 0) threatLevel = 'Very Low';\n\n  if (reasons.length === 0) reasons.push(\"No specific threat indicators found.\");\n\n  // --- 4. Assemble Final Object ---\n  const finalAssembly = {\n    // Core Info\n    character_name: input.character_name,\n    character_id: characterId,\n    lookup_timestamp: input.validation_timestamp,\n    is_batch_mode: input.is_batch_mode || false,\n    \n    // Enhanced ESI Data\n    character: enhancedCharacter,\n    corporation: enhancedCorporation,\n    alliance: enhancedAlliance,\n    corporation_history: enhancedCorpHistory,\n    \n    // Stats (from hybrid fetcher)\n    stats: stats,\n    data_source: {\n      stats: input.zkill_source,\n      killmails: input.killmail_source\n    },\n    \n    // Analysis (from real killmails OR lifetime stats)\n    analysis: {\n      threat_level: threatLevel,\n      threat_reasons: reasons,\n      capital_usage_detected: capitalUsage,\n      is_wormhole_operator: isWhOperator,\n      top_kill_ships: topKillsShips,\n      top_loss_ships: topLossesShips,\n      top_systems: topSystems,\n      security_analysis: securityAnalysis,\n      source: hasRecentActivity ? 'recent_killmail_analysis' : 'lifetime_stats_fallback'\n    },\n\n    // Raw Data (for debugging or deep dives)\n    recent_killmails: killmails.slice(0, 25) // Return top 25 most recent\n  };\n\n  console.log(`[Final Assembly] Analysis complete. Threat Level: ${threatLevel}`);\n  \n  return [{ json: finalAssembly }];\n\n} catch (error) {\n  console.error('❌ Final Intel Assembly failed:', error.message, error.stack);\n  const errorOutput = { \n    error_message: error.message, \n    character_name: $input.first().json.character_name || 'unknown', \n    stack: error.stack \n  };\n  return [{ json: errorOutput }];\n} finally {\n  if (redis) await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        -96
+      ],
+      "id": "11cb578d-4d6e-431e-bfa5-53965c8a6649",
+      "name": "NEW Final Intel Assembly"
+    }
+  ],
+  "connections": {
+    "CHARACTER": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Input Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combined Data Merger": {
+      "main": [
+        [
+          {
+            "node": "NEW Final Intel Assembly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Character Pull": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Combined Data Merger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Local Zkill Cache Pull": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Enhanced Input Validator": {
+      "main": [
+        [
+          {
+            "node": "Character Pull",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Local Zkill Cache Pull",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

@@ -1,0 +1,276 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "/**\n * R2Z2 Poller - \"Tiered Scaling\" Edition (v7.5)\n * Logic:\n * 1. Routine Poller:\n * - Growth: Dynamic Tiers based on KPM.\n * - <20 KPM: Cap 2 (Efficiency).\n * - >50 KPM: Cap 20 (Fast Ramp).\n * - >100 KPM: Cap 50 (Extreme/Instant).\n * - Low Activity: Probes with Batch 2 every 10s.\n * 2. Sequence Sync: Safety net every 60s for massive lag spikes.\n */\n\nconst Redis = require('ioredis');\nconst axios = require('axios');\n\n// --- CONSTANTS ---\nconst STATIC = {\n    BASE_URL: 'https://r2z2.zkillboard.com/ephemeral',\n    SEQUENCE_URL: 'https://r2z2.zkillboard.com/ephemeral/sequence.json',\n    KEYS: {\n        PERF_LOG: 'r2z2:perf_log',\n        SEQUENCE: 'r2z2:current_sequence',\n        LAST_SEQ_FETCH: 'r2z2:last_sequence_fetch_time',\n        HEARTBEAT: 'r2z2:ingestion.active',\n        QUEUE: 'intel:queue:pending',\n        SEEN_SET: 'r2z2:seen_killmails',\n        METRICS: 'r2z2:metrics',\n        BATCH_SIZE: 'r2z2:adaptive_batch_size',\n        STREAK: 'r2z2:success_streak',\n        GAP: 'r2z2:gap_streak'\n    },\n    MIN_SLEEP: 5000,\n    PERF_LOG_MAX: 2000,\n    USER_AGENT: 'Alfred-Intel-Bot/7.5 (Tiered-Scaling; contact: looknet)'\n};\n\n// --- HELPER: Smoothed KPM (15m window) ---\nasync function getRecentKpm(redis, lookback = 30) {\n    const entries = await redis.lrange(STATIC.KEYS.PERF_LOG, 0, lookback - 1);\n    if (entries.length === 0) return 0;\n    let totalQueued = 0;\n    let totalTimeMs = 0;\n    for (const entry of entries) {\n        try {\n            const data = JSON.parse(entry);\n            totalQueued += data.queued || 0;\n            totalTimeMs += (data.sleep_ms || 0) + (data.dur_ms || 0);\n        } catch {}\n    }\n    if (totalTimeMs === 0) return 0;\n    const minutes = totalTimeMs / 60000;\n    return minutes > 0 ? totalQueued / minutes : 0;\n}\n\nlet redis;\n\nasync function fetchSequence(sequenceId) {\n    try {\n        const response = await axios.get(`${STATIC.BASE_URL}/${sequenceId}.json`, {\n            timeout: 5000,\n            headers: { 'User-Agent': STATIC.USER_AGENT, 'Accept': 'application/json' },\n            validateStatus: () => true\n        });\n        return { sequenceId, status: response.status, data: response.status === 200 ? response.data : null };\n    } catch (error) {\n        return { sequenceId, status: 0, data: null, error: error.message };\n    }\n}\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n    await new Promise((resolve, reject) => {\n        redis.on('ready', resolve);\n        redis.on('error', reject);\n        setTimeout(() => reject(new Error('Redis timeout')), 6000);\n    });\n\n    await redis.set(STATIC.KEYS.HEARTBEAT, new Date().toISOString(), 'EX', 300);\n\n    let batchSize = parseInt(await redis.get(STATIC.KEYS.BATCH_SIZE) || '1'); \n    let successStreak = parseInt(await redis.get(STATIC.KEYS.STREAK) || '0');\n    let gapStreak = parseInt(await redis.get(STATIC.KEYS.GAP) || '0');\n    \n    let currentSequence = await redis.get(STATIC.KEYS.SEQUENCE);\n    if (!currentSequence) {\n        const seqResp = await axios.get(STATIC.SEQUENCE_URL, { timeout: 5000, headers: { 'User-Agent': STATIC.USER_AGENT } });\n        currentSequence = seqResp.data.sequence || seqResp.data.sequence_id;\n        await redis.set(STATIC.KEYS.SEQUENCE, currentSequence);\n        await redis.set(STATIC.KEYS.LAST_SEQ_FETCH, Date.now(), 'EX', 300);\n    } else {\n        currentSequence = parseInt(currentSequence);\n    }\n\n    const smoothedKpm = await getRecentKpm(redis, 30);\n    const lastSeqFetch = await redis.get(STATIC.KEYS.LAST_SEQ_FETCH);\n    const timeSinceLastFetch = lastSeqFetch ? (Date.now() - parseInt(lastSeqFetch)) : 999999;\n    \n    let mode = 'Flowing';\n    let currentLag = 0;\n    let isHugeCall = false;\n\n    // --- SYSTEM 1: SEQUENCE SYNC (The Huge Call) ---\n    // Only runs if 60s has passed naturally.\n    if (timeSinceLastFetch >= 60000) {\n        try {\n            const seqResp = await axios.get(STATIC.SEQUENCE_URL, { timeout: 5000, headers: { 'User-Agent': STATIC.USER_AGENT } });\n            const latestSequence = parseInt(seqResp.data.sequence || seqResp.data.sequence_id);\n            await redis.set(STATIC.KEYS.LAST_SEQ_FETCH, Date.now(), 'EX', 300);\n            \n            const exactLag = latestSequence - currentSequence;\n            currentLag = exactLag;\n\n            if (exactLag > 10) {\n                // This is the ONLY place we trigger a huge call\n                batchSize = Math.min(50, exactLag);\n                mode = 'HUGE CALL (Sync)';\n                isHugeCall = true;\n            } else if (exactLag > 0) {\n                 batchSize = Math.min(50, exactLag);\n                 mode = 'Edge Sync';\n            } else {\n                batchSize = 1;\n                mode = 'At Tip';\n            }\n        } catch (err) {\n            console.log(`[R2Z2] Seq check failed: ${err.message}`);\n        }\n    }\n\n    const sequencesToFetch = Array.from({length: batchSize}, (_, i) => currentSequence + i);\n    const fetchStart = Date.now();\n    const results = await Promise.all(sequencesToFetch.map(fetchSequence));\n    const fetchDur = Date.now() - fetchStart;\n    results.sort((a, b) => a.sequenceId - b.sequenceId);\n\n    const metrics = { found: 0, queued: 0, notFound: 0, errors: 0 };\n    const killmailsToQueue = [];\n    let highestSuccessfulSeq = currentSequence - 1;\n\n    for (const result of results) {\n        if (result.status === 200 && result.data) {\n            metrics.found++;\n            highestSuccessfulSeq = result.sequenceId;\n            const km = result.data;\n            const kmId = km.killmail_id || km.esi?.killmail_id;\n            \n            if (kmId && await redis.sadd(STATIC.KEYS.SEEN_SET, kmId)) {\n                km.r2z2_sequence = result.sequenceId;\n                km.r2z2_fetched_at = new Date().toISOString();\n                killmailsToQueue.push(JSON.stringify(km));\n                metrics.queued++;\n            }\n        } else if (result.status === 404) {\n            metrics.notFound++;\n        }\n    }\n\n    // --- TIP CONFIRMATION ---\n    // If we hit a 404, delay the sequence check.\n    if (metrics.notFound > 0) {\n        await redis.set(STATIC.KEYS.LAST_SEQ_FETCH, Date.now(), 'EX', 300);\n    }\n\n    // --- SYSTEM 2: CONSERVATIVE POLLER ---\n    // Logic: 5 successes at each step before going up.\n    \n    const newSequence = metrics.found > 0 ? highestSuccessfulSeq + 1 : currentSequence;\n    let nextBatchSize = batchSize;\n    let nextSuccessStreak = successStreak;\n    let nextGapStreak = gapStreak;\n    let sleepTime = STATIC.MIN_SLEEP;\n\n    // CASE A: Perfect Run (All Found)\n    if (metrics.found > 0 && metrics.notFound === 0) {\n        if (!isHugeCall) { \n            nextSuccessStreak++;\n            nextGapStreak = 0;\n            \n            // DYNAMIC SCALING TIERS\n            // Adapts capacity and reaction speed based on KPM\n            let batchCap = 2;       // Default: Efficiency Gate\n            let requiredStreak = 5; // Default: Stable\n            let growthStep = 1;     // Default: Linear\n\n            if (smoothedKpm > 100) {\n                batchCap = 50;      // Extreme Load\n                requiredStreak = 1; // Instant Reaction\n                growthStep = 5;     // Fast Ramp\n            } else if (smoothedKpm > 50) {\n                batchCap = 20;      // Heavy Load\n                requiredStreak = 3; // Fast Response\n                growthStep = 2;\n            } else if (smoothedKpm > 20) {\n                batchCap = 5;       // Standard Active\n                requiredStreak = 5;\n                growthStep = 1;\n            }\n\n            if (nextSuccessStreak >= requiredStreak) {\n                if (batchSize < batchCap) {\n                    nextBatchSize = Math.min(batchCap, batchSize + growthStep);\n                    nextSuccessStreak = 0; \n                } else {\n                    // Check if we need to scale down (e.g. KPM dropped)\n                    nextBatchSize = Math.min(batchSize, batchCap);\n                }\n            } else {\n                // Ensure we respect the cap during streak buildup\n                nextBatchSize = Math.min(batchSize, batchCap);\n            }\n        } else {\n             // After a huge call, reset to a safe active level (5 or 2)\n             nextBatchSize = (smoothedKpm > 20) ? 5 : 2; \n             nextSuccessStreak = 0;\n        }\n    } \n    // CASE B: Soft Fail (Found Some, Missed Some) - The Edge\n    else if (metrics.found > 0 && metrics.notFound > 0) {\n        // REQUESTED: Ask for 2 every 10 seconds (Better Soft Fail condition)\n        nextBatchSize = 2; \n        nextSuccessStreak = 0;\n        nextGapStreak = 0;\n        \n        sleepTime = 10000; // Fixed 10s for heavy probe\n        mode = 'Soft Fail (Probe 2 @ 10s)';\n    } \n    // CASE C: Hard Fail (Found Nothing)\n    else {\n        // REQUESTED: Ask for 2 every 10 seconds\n        nextBatchSize = 2;\n        nextSuccessStreak = 0;\n        nextGapStreak++;\n        \n        // Base 10s + Backoff\n        const backoff = Math.min(10000, nextGapStreak * 1000);\n        sleepTime = 10000 + backoff;\n        mode = `Backing Off (2 @ ${sleepTime/1000}s)`;\n    }\n\n    await redis.set(STATIC.KEYS.SEQUENCE, newSequence);\n    await redis.set(STATIC.KEYS.BATCH_SIZE, nextBatchSize);\n    await redis.set(STATIC.KEYS.STREAK, nextSuccessStreak);\n    await redis.set(STATIC.KEYS.GAP, nextGapStreak);\n\n    if (killmailsToQueue.length > 0) {\n        const pipe = redis.pipeline();\n        for (const km of killmailsToQueue) pipe.rpush(STATIC.KEYS.QUEUE, km);\n        await pipe.exec();\n    }\n\n    const mp = redis.pipeline();\n    mp.hincrby(STATIC.KEYS.METRICS, 'total_fetched', metrics.found);\n    mp.hincrby(STATIC.KEYS.METRICS, 'total_queued', metrics.queued);\n    mp.hset(STATIC.KEYS.METRICS, 'last_sequence', newSequence);\n    mp.hset(STATIC.KEYS.METRICS, 'current_batch_size', nextBatchSize);\n    mp.hset(STATIC.KEYS.METRICS, 'current_kpm', smoothedKpm.toFixed(2));\n    mp.hset(STATIC.KEYS.METRICS, 'last_run', new Date().toISOString());\n    await mp.exec();\n\n    const perfEntry = JSON.stringify({\n        ts: new Date().toISOString(),\n        batch: batchSize,\n        found: metrics.found,\n        queued: metrics.queued,\n        not_found: metrics.notFound,\n        dur_ms: fetchDur,\n        sleep_ms: sleepTime,\n        seq: currentSequence,\n        kpm: smoothedKpm.toFixed(1),\n        lag: currentLag,\n        mode: mode,\n        streak: nextSuccessStreak\n    });\n    \n    const perfPipe = redis.pipeline();\n    perfPipe.lpush(STATIC.KEYS.PERF_LOG, perfEntry);\n    perfPipe.ltrim(STATIC.KEYS.PERF_LOG, 0, STATIC.PERF_LOG_MAX - 1);\n    await perfPipe.exec();\n\n    if (sleepTime > 0) await new Promise(r => setTimeout(r, sleepTime));\n    await redis.set(STATIC.KEYS.HEARTBEAT, new Date().toISOString(), 'EX', 300);\n\n    return [{ json: {\n        status: 'success',\n        sequence: newSequence,\n        batch: nextBatchSize,\n        sleep_ms: sleepTime,\n        kpm: smoothedKpm,\n        mode: mode,\n        found: metrics.found,\n        should_restart: true\n    }}];\n\n} catch (error) {\n    console.error('[R2Z2] Error:', error.message);\n    try { if (redis) await redis.del(STATIC.KEYS.HEARTBEAT); } catch {}\n    await new Promise(r => setTimeout(r, 5000));\n    return [{ json: { status: 'error', error: error.message, should_restart: true }}];\n} finally {\n    if (redis) await redis.quit();\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3536,
+        -496
+      ],
+      "id": "746294d2-3110-4cb4-a4eb-be59e49edb47",
+      "name": "R2Z2 Poller",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-ain.looknet.ca/webhook/r2z2-poll-trigger",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3152,
+        -512
+      ],
+      "id": "5cb50def-008f-4796-9003-33bcedb501c6",
+      "name": "Restart Polling",
+      "executeOnce": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "r2z2-poll-trigger",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -3744,
+        -496
+      ],
+      "id": "43df8c33-728c-4727-84bc-1dd3323614d7",
+      "name": "Webhook",
+      "webhookId": "r2z2-poll-trigger"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -4048,
+        -656
+      ],
+      "id": "a9b5f753-f4b6-4125-959a-92ddf3e993a7",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1a1ecbc6-12a2-42d8-9446-6233138c21e1",
+              "leftValue": "={{ $json.ingestion_active }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3744,
+        -656
+      ],
+      "id": "c2b73b28-f9fb-4521-a770-2a0c8a677457",
+      "name": "If Ingestion Active"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -3536,
+        -672
+      ],
+      "id": "3f75e03f-faca-44d5-a93f-5c5de71f8f64",
+      "name": "Do Nothing"
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nlet redis;\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n    \n    await new Promise((resolve, reject) => {\n        redis.on('ready', resolve);\n        redis.on('error', reject);\n        setTimeout(() => reject(new Error('Redis connection timeout')), 6000);\n    });\n    \n    console.log('[Activity Check] Connected to Redis.');\n    \n    // Check if ingestion.active exists\n    const isActive = await redis.get('r2z2:ingestion.active');\n    \n    if (isActive) {\n        const ttl = await redis.ttl('r2z2:ingestion.active');\n        console.log(`[Activity Check] Ingestion is ACTIVE. Last update: ${isActive}, TTL: ${ttl}s`);\n    } else {\n        console.log('[Activity Check] Ingestion is INACTIVE (key expired or missing).');\n    }\n    \n    return [{ json: { \n        ingestion_active: !!isActive,\n        last_update: isActive,\n        ttl_remaining: isActive ? await redis.ttl('r2z2:ingestion.active') : 0\n    }}];\n    \n} catch (error) {\n    console.error('[Activity Check] Redis error:', error.message);\n    // On error, assume ingestion is inactive to allow restart\n    return [{ json: { \n        ingestion_active: false,\n        error: error.message \n    }}];\n    \n} finally {\n    if (redis) {\n        await redis.quit();\n        console.log('[Activity Check] Redis connection closed.');\n    }\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3904,
+        -656
+      ],
+      "id": "178bf32b-f904-4914-8170-6c853192ccd1",
+      "name": "Activity Check"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "02e8e31a-ebbb-4ffa-aa3f-0071d2ba21a4",
+              "leftValue": "={{ $json.should_restart }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3360,
+        -496
+      ],
+      "id": "0c22c8fc-c954-407b-b46a-2e17514bb16d",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3152,
+        -704
+      ],
+      "id": "1fba5ea7-abe4-4c63-ad2d-7b30c063328a",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "connections": {
+    "R2Z2 Poller": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "R2Z2 Poller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Activity Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Ingestion Active": {
+      "main": [
+        [
+          {
+            "node": "Do Nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "R2Z2 Poller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activity Check": {
+      "main": [
+        [
+          {
+            "node": "If Ingestion Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Restart Polling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Restart Polling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

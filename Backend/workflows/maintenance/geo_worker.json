@@ -1,0 +1,104 @@
+{
+  "name": "Geo Location Worker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "af4b2c89-1234-4321-abcd-1234567890ab",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n\nconst BATCH_SIZE = 100;\n\ntry {\n    // Source of truth: connection logs contain IPs for ALL users ever seen (up to 10k entries).\n    // Pilot hash keys (intel:pilot_*) expire after 15 min so scanning them is useless for history.\n    const logs = await redis.lrange('intel:logs:connections', 0, 9999);\n\n    if (logs.length === 0) return [];\n\n    // Extract unique IPs from log entries\n    const uniqueIps = new Set();\n    for (const logStr of logs) {\n        try {\n            const log = JSON.parse(logStr);\n            if (log.ip && log.ip !== 'unknown') uniqueIps.add(log.ip);\n        } catch(e) {}\n    }\n\n    const ipsToCheck = Array.from(uniqueIps);\n    if (ipsToCheck.length === 0) return [];\n\n    // Check which IPs are not yet geo-cached\n    const cachePipeline = redis.pipeline();\n    ipsToCheck.forEach(ip => cachePipeline.get(`intel:geo:${ip}`));\n    const cacheResults = await cachePipeline.exec();\n\n    const toFetch = [];\n    ipsToCheck.forEach((ip, index) => {\n        const [err, result] = cacheResults[index];\n        if (!result || result === 'null') {\n            // IPv6: colon means public IPv6, fetch it\n            if (ip.includes(':')) {\n                toFetch.push(ip);\n                return;\n            }\n            // Filter private IPv4 ranges\n            const parts = ip.split('.').map(Number);\n            if (parts.length === 4) {\n                if (parts[0] === 10 || parts[0] === 127 ||\n                   (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||\n                   (parts[0] === 192 && parts[1] === 168) ||\n                   (parts[0] === 169 && parts[1] === 254)) {\n                    return;\n                }\n                toFetch.push(ip);\n            }\n        }\n    });\n\n    if (toFetch.length === 0) return [];\n\n    // Prepare batch for HTTP node (ip-api.com limit is 100 per request)\n    const batch = toFetch.slice(0, BATCH_SIZE);\n    const payload = batch.map(query => ({ query, fields: 'status,country,countryCode' }));\n\n    return [{ \n        json: { \n            ips: batch,\n            payload: payload\n        } \n    }];\n\n} finally {\n    if (redis) redis.quit();\n}"
+      },
+      "id": "b3c4d5e6-7890-1234-efgh-567890123456",
+      "name": "Prepare Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://ip-api.com/batch",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "c4d5e6f7-8901-2345-ijkl-678901234567",
+      "name": "Fetch Geo API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n\nconst GEO_CACHE_TTL = 2592000; // 30 days\nconst GEO_NULL_TTL = 300;      // 5 minutes\n\ntry {\n    // Retrieve the IPs we requested from the first node\n    const prepareNode = $('Prepare Batch').first();\n    if (!prepareNode) return [{ json: { status: 'no_data' } }];\n    \n    const ips = prepareNode.json.ips;\n    \n    // The HTTP node might return the array of results as a single item's JSON,\n    // OR split it into multiple items. \n    // If split (default often), 'items' is the array of results.\n    // If not split, items[0].json is the array.\n    \n    let results = [];\n    if (items.length > 1) {\n        results = items.map(i => i.json);\n    } else if (Array.isArray(items[0].json)) {\n        results = items[0].json;\n    } else {\n        results = [items[0].json]; // Single result case\n    }\n\n    const savePipe = redis.pipeline();\n    let successCount = 0;\n\n    ips.forEach((ip, idx) => {\n        if (idx >= results.length) return;\n        const res = results[idx];\n        const key = `intel:geo:${ip}`;\n        \n        if (res && res.status === 'success') {\n            const data = { country: res.country, code: res.countryCode };\n            savePipe.set(key, JSON.stringify(data), 'EX', GEO_CACHE_TTL);\n            successCount++;\n        } else {\n            savePipe.set(key, 'null', 'EX', GEO_NULL_TTL);\n        }\n    });\n\n    await savePipe.exec();\n\n    return [{ \n        json: { \n            status: 'success', \n            saved: successCount, \n            total: ips.length\n        } \n    }];\n\n} finally {\n    if (redis) redis.quit();\n}"
+      },
+      "id": "d5e6f7g8-9012-3456-mnop-789012345678",
+      "name": "Save Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Batch": {
+      "main": [
+        [
+          {
+            "node": "Fetch Geo API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Geo API": {
+      "main": [
+        [
+          {
+            "node": "Save Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

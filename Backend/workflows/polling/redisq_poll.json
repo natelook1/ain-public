@@ -1,0 +1,239 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nlet redis;\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n    \n    await new Promise((resolve, reject) => {\n        redis.on('ready', resolve);\n        redis.on('error', reject);\n        setTimeout(() => reject(new Error('Redis connection timeout')), 6000);\n    });\n    \n    console.log('[Check Ingestion] Connected to Redis.');\n    \n    // Check if ingestion.active exists\n    const isActive = await redis.get('ingestion.active');\n    \n    if (isActive) {\n        const ttl = await redis.ttl('ingestion.active');\n        console.log(`[Check Ingestion] Ingestion is ACTIVE. Last update: ${isActive}, TTL: ${ttl}s`);\n    } else {\n        console.log('[Check Ingestion] Ingestion is INACTIVE (key expired or missing).');\n    }\n    \n    return [{ json: { \n        ingestion_active: !!isActive,\n        last_update: isActive,\n        ttl_remaining: isActive ? await redis.ttl('ingestion.active') : 0\n    }}];\n    \n} catch (error) {\n    console.error('[Check Ingestion] Redis error:', error.message);\n    // On error, assume ingestion is inactive to allow restart\n    return [{ json: { \n        ingestion_active: false,\n        error: error.message \n    }}];\n    \n} finally {\n    if (redis) {\n        await redis.quit();\n        console.log('[Check Ingestion] Redis connection closed.');\n    }\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        592
+      ],
+      "id": "4fe54d2e-6317-4738-ba8f-c2b44c6749c2",
+      "name": "Activity Check"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -976,
+        576
+      ],
+      "id": "cb88afb2-e02d-45fe-975a-9a5945fc0ebf",
+      "name": "Do Nothing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1a1ecbc6-12a2-42d8-9446-6233138c21e1",
+              "leftValue": "={{ $json.ingestion_active }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1184,
+        592
+      ],
+      "id": "c8997625-e727-4d49-9027-dd90861c671e",
+      "name": "If Ingestion Active"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1488,
+        592
+      ],
+      "id": "fc892879-97ae-4136-abfe-be5c4f7c5992",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://zkillredisq.stream/listen.php?queueID=LOOKNET&ttw=9",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -976,
+        752
+      ],
+      "id": "3678612b-fe8b-4c67-b196-8b9752906b22",
+      "name": "ZKill Update",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "eba71a0d-1b82-43ef-ad66-f4a15defe7dc",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1184,
+        752
+      ],
+      "id": "0aba9373-cdd0-4ecb-87dd-c51e2ce7247c",
+      "name": "Webhook",
+      "webhookId": "eba71a0d-1b82-43ef-ad66-f4a15defe7dc"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-ain.looknet.ca/webhook/eba71a0d-1b82-43ef-ad66-f4a15defe7dc",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -608,
+        752
+      ],
+      "id": "7b2f9f53-eebf-4b97-a7d5-b4476ed03330",
+      "name": "Restart Polling",
+      "executeOnce": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: \"Filter & Queue Kills\"\n// SETS HEARTBEAT + FILTERS + QUEUES\n\n// --- START: HEARTBEAT LOGIC ---\nconst Redis = require('ioredis');\nlet redisHeartbeat;\ntry {\n\tredisHeartbeat = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n\tawait new Promise((resolve, reject) => {\n\t\tredisHeartbeat.on('ready', resolve);\n\t\tredisHeartbeat.on('error', reject);\n\t\tsetTimeout(() => reject(new Error('Redis connection timeout')), 6000);\n\t});\n\t\n\t// Set ingestion.active with a 20-second TTL\n\tawait redisHeartbeat.set('ingestion.active', new Date().toISOString(), 'EX', 20);\n\tconsole.log('[Ingestor] Set ingestion.active heartbeat with 20s TTL.');\n\t\n} catch (error) {\n\tconsole.error('[Ingestor] Heartbeat Redis connection/set error:', error.message);\n\t// Do not fail the workflow here, just log the error\n} finally {\n\tif (redisHeartbeat) await redisHeartbeat.quit();\n}\n// --- END: HEARTBEAT LOGIC ---\n\n\n// --- START: EXISTING QUEUE LOGIC ---\nlet redisQueue;\nconst items = $input.all();\nconst QUEUE_KEY = 'intel:queue:pending';\n\nconst killmailsToQueue = [];\n\n// 1. Filter and Extract\nfor (const item of items) {\n\tconst killmailPackage = item.json?.package;\n\n\t// Skip if no package (zKill null response)\n\tif (!killmailPackage) {\n\t\tcontinue; \n\t}\n\t\n\t// Check for padding\n\tconst isPadding = killmailPackage.zkb?.labels?.includes('padding') ?? false;\n\t\n\t// If it's NOT padding, extract data\n\tif (!isPadding) {\n\t\t// UPDATED: killID is now at top level of package, not nested in killmail object\n\t\tconst kill_id = killmailPackage.killID;\n\t\tconst hash = killmailPackage.zkb?.hash;\n\t\t\n\t\tif (kill_id && hash) {\n\t\t\tkillmailsToQueue.push(JSON.stringify({\n\t\t\t\tkill_id: kill_id,\n\t\t\t\thash: hash\n\t\t\t}));\n\t\t}\n\t}\n}\n\n// 2. Add to Queue\nif (killmailsToQueue.length === 0) {\n\tconsole.log('Batch contained 0 valid killmails (likely all padding).');\n\treturn items; // Go to Restart Polling\n}\n\ntry {\n\t// Use a new connection for the queue logic\n\tredisQueue = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n\tawait redisQueue.ping();\n\n\t// Use a pipeline for high-speed insertion\n\tconst pipe = redisQueue.pipeline();\n\tfor (const data of killmailsToQueue) {\n\t\tpipe.rpush(QUEUE_KEY, data);\n\t}\n\tawait pipe.exec();\n\n\tconsole.log(`Successfully queued ${killmailsToQueue.length} killmails.`);\n\n} catch (e) {\n\tconsole.error(`Failed to add killmails to queue '${QUEUE_KEY}':`, e.message);\n\tthrow e; // Fail the workflow so it retries\n} finally {\n\tif (redisQueue) await redisQueue.quit();\n}\n\n// Pass all items through to the \"Restart Polling\" node\nreturn items;\n// --- END: EXISTING QUEUE LOGIC ---"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        752
+      ],
+      "id": "b3863bfd-4d4e-4078-b2f2-43429d6c5eee",
+      "name": "Filter & Queue Kills"
+    }
+  ],
+  "connections": {
+    "Activity Check": {
+      "main": [
+        [
+          {
+            "node": "If Ingestion Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Ingestion Active": {
+      "main": [
+        [
+          {
+            "node": "Do Nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ZKill Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Activity Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZKill Update": {
+      "main": [
+        [
+          {
+            "node": "Filter & Queue Kills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "ZKill Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter & Queue Kills": {
+      "main": [
+        [
+          {
+            "node": "Restart Polling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

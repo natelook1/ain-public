@@ -1,0 +1,85 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "path": "dashboard-intel",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a2dc4675-2bbc-40d7-bd57-4deb0770b1e3",
+      "name": "Dashboard Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        8928,
+        -7312
+      ],
+      "webhookId": "intel-dashboard"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Node: INTEL ANALYZER (Multi-Session & Identity Resolution)\n */\nconst Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n\nconst deriveIntent = (l) => {\n    const q = l.query || {};\n    const v = String(l.view || q.view || 'standard').toLowerCase();\n    \n    // CRITICAL: specific map mapping for Matrix View State\n    if (v === 'map_3d') return 'Tactical 3D';\n    if (v === 'map_flat') return 'Flat Map';\n    if (v === 'map_2d') return 'Tactical 2D';\n    if (v === 'mosaic') return 'Mosaic Grid';\n    if (v === 'compact') return 'Compact Feed';\n    \n    if (q.w_space) return 'W-Space Hunter';\n    let i = l.intent || 'Feed';\n    if (i.includes('Search')) return 'Global Search';\n    \n    return i;\n};\n\ntry {\n    // BUMPED: Increased from 9999 to 49999 to keep up with heavy traffic for the full 30min window\n    const logs = await redis.lrange('intel:logs:connections', 0, 49999);\n    const usageStats = await redis.hgetall('intel:usage:stats') || {};\n    const activeFingerprintsRaw = await redis.zrangebyscore('intel:active:pilots', Math.floor(Date.now()/1000) - 900, '+inf');\n    const activeSet = new Set(activeFingerprintsRaw);\n    const nicknames = await redis.hgetall('intel:user:nicknames') || {};\n    \n    const parsedLogs = logs.map(l => {\n        try { return JSON.parse(l); } catch(e) { return null; }\n    }).filter(l => l);\n\n    \n    const uIPs = [...new Set(parsedLogs.map(l => l.ip).filter(i => i && i !== 'unknown'))];\n    const gP = redis.pipeline();\n    uIPs.forEach(ip => gP.get('intel:geo:' + ip));\n    const gR = await gP.exec();\n    const gMap = {};\n    uIPs.forEach((ip, i) => {\n        const v = gR[i][1];\n        if (v && v !== 'null') gMap[ip] = JSON.parse(v);\n    });\n\nconst now = Math.floor(Date.now() / 1000);\n\n    // Reduced logs to user summaries for the registry with Multi-Session detection\n    const userActivity = parsedLogs.reduce((acc, log) => {\n        let id = log.ip || log.id || 'unknown';\n        if (!acc[id]) {\n            acc[id] = { \n                hits: 0, \n                last_ts: log.ts,\n                active: activeSet.has(log.id), geo: gMap[log.ip] || log.geo || null,\n                latest_resolved: {}, \n                latest_filters: {}, \n                active_views: new Set(), \n                last_intent: deriveIntent(log) \n            };\n        }\n        acc[id].hits++;\n        \n        // AGGREGATION: Collect ALL unique views and filters active in the window (3 mins)\n        if (now - log.ts < 180) {\n            acc[id].active_views.add(String(log.view || 'standard').toLowerCase());\n            \n            // MERGE FILTERS: If one session has Pochven and another has an Alliance, combine them\n            if (log.query) {\n                acc[id].latest_filters = { ...acc[id].latest_filters, ...log.query };\n            }\n            if (log.resolved || log.query_data) {\n                acc[id].latest_resolved = { ...acc[id].latest_resolved, ...(log.resolved || {}), ...(log.query_data || {}) };\n            }\n        }\n\n        if (!acc[id].processed) {\n            acc[id].last_view = log.view || (log.query && log.query.view) || 'standard';\n            acc[id].last_intent = deriveIntent(log);\n            acc[id].processed = true;\n        }\n        return acc;\n    }, {});\n    \n    const topUsers = Object.keys(userActivity).map(key => ({\n        ...userActivity[key],\n        id: key,\n        nickname: nicknames[key] || null,\n        active_views: Array.from(userActivity[key].active_views),\n        active_now: (now - (userActivity[key].last_ts || 0)) < 90\n    })).sort((a,b) => b.hits - a.hits).slice(0, 100);\n\n    const tableData = parsedLogs.slice(0, 2000).map(l => ({\n        Time: new Date(l.ts * 1000).toISOString().replace('T', ' ').slice(0, 19),\n        Intent: deriveIntent(l),\n        View: l.view || (l.query && l.query.view) || 'standard',\n        Fingerprint: l.ip || l.id, Geo: l.geo || null,\n        Filters: l.query || {},\n        Resolved: { ...(l.resolved || {}), ...(l.query_data || {}) }\n    }));\n\n    // --- GEO: backfill missing geo for top users from Redis cache / ip-api.com (HTTP - free tier only)\n    const uniqueIps = [...new Set(topUsers.filter(u => !u.geo).map(u => u.id).filter(ip => { if (!ip || ip === 'unknown') return false; const _q=ip.split('.').map(Number); return !(_q.length===4&&(_q[0]===10||_q[0]===127||(_q[0]===172&&_q[1]>=16&&_q[1]<=31)||(_q[0]===192&&_q[1]===168)||(_q[0]===169&&_q[1]===254))); }))];\n    if (uniqueIps.length > 0) {\n        const geoPipe = redis.pipeline();\n        uniqueIps.forEach(ip => geoPipe.get('intel:geo:' + ip));\n        const geoResults = await geoPipe.exec();\n        const ipGeoMap = {};\n        const toFetch = [];\n        uniqueIps.forEach((ip, i) => {\n            const cached = geoResults[i][1];\n            if (cached) { try { ipGeoMap[ip] = JSON.parse(cached); } catch(e) {} }\n            else toFetch.push(ip);\n        });\n        if (toFetch.length > 0) {\n            try {\n                const batchIps = toFetch.slice(0, 100);\n                const batchBody = JSON.stringify(batchIps.map(ip => ({ query: ip, fields: 'status,country,countryCode' })));\n                let batchRes=[];try{const resp=await fetch('http://ip-api.com/batch?fields=status,country,countryCode',{method:'POST',headers:{'Content-Type':'application/json'},body:batchBody,signal:AbortSignal.timeout(5000)});batchRes=await resp.json();}catch(fe){}\n                const geoCachePipe = redis.pipeline();\n                batchIps.forEach((ip, i) => {\n                    const r = Array.isArray(batchRes) ? batchRes[i] : null;\n                    if (r && r.status === 'success') {\n                        const geo = { country: r.country, code: r.countryCode };\n                        ipGeoMap[ip] = geo;\n                        geoCachePipe.set('intel:geo:' + ip, JSON.stringify(geo), 'EX', 2592000);\n                    } else {\n                        geoCachePipe.set('intel:geo:' + ip, 'null', 'EX', 300);\n                    }\n                });\n                await geoCachePipe.exec();\n            } catch(e) {}\n        }\n        topUsers.forEach(u => { if (!u.geo && ipGeoMap[u.id]) u.geo = ipGeoMap[u.id]; });\n    }\n\n    // --- NAMES: resolve entity IDs via existing eve:id_to_name cache (populated by killmail indexer)\n    const ID_FILTER_KEYS = ['alliance_id', 'corporation_id', 'character_id', 'region_id', 'solar_system_id', 'system_id', 'ship_type_id', 'filters_region', 'filters_attacker_ship'];\n    const allEntityIds = new Set();\n    parsedLogs.forEach(l => {\n        const q = l.query || {};\n        ID_FILTER_KEYS.forEach(k => { if (q[k]) String(q[k]).split(',').forEach(id => { id = id.trim(); if (id && Number(id) > 0) allEntityIds.add(id); }); });\n    });\n    const id_names = {};\n    if (allEntityIds.size > 0) {\n        const idArr = [...allEntityIds];\n        const namePipe = redis.pipeline();\n        idArr.forEach(id => namePipe.hget('eve:id_to_name', id));\n        const nameResults = await namePipe.exec();\n        idArr.forEach((id, i) => { const n = nameResults[i][1]; if (n && !n.startsWith('RETRY:')) id_names[id] = n; });\n    }\n\n    // --- ACTIVITY TIMELINE: 30-min, computed from all parsed logs for full coverage ---\n    const timelineBuckets = new Map();\n    const nowSec = Math.floor(Math.floor(Date.now() / 1000) / 60) * 60; // align to current minute boundary\n    for (let i = 29; i >= 0; i--) {\n        timelineBuckets.set(nowSec - (i * 60), new Set());\n    }\n    parsedLogs.forEach(l => {\n        const bucketTs = Math.floor((l.ts || 0) / 60) * 60;\n        if (timelineBuckets.has(bucketTs)) {\n            timelineBuckets.get(bucketTs).add(l.id || l.ip || 'unknown');\n        }\n    });\n    const timeline = [...timelineBuckets.entries()].map(([ts, pilots]) => ({\n        time: new Date(ts * 1000).toISOString().substring(11, 16),\n        count: pilots.size\n    }));\n\n    // --- ACCURATE PEAK TRACKING ---\n    const activePilotsNow = Object.values(userActivity).filter(u => now - (u.last_ts || 0) < 90).length;\n    let peakConcurrent = parseInt(await redis.get('intel:stats:peak_unique_pilots'));\n    \n    // If record doesn't exist or we hit a new high, save it.\n    if (isNaN(peakConcurrent) || activePilotsNow > peakConcurrent) {\n        peakConcurrent = activePilotsNow;\n        await redis.set('intel:stats:peak_unique_pilots', peakConcurrent);\n    }\n\n    return [{\n        json: {\n            overview: {\n                active_pilots_now: activePilotsNow,\n                peak_concurrent: peakConcurrent,\n                total_tracked: Object.keys(userActivity).length,\n                total_logs_analyzed: parsedLogs.length,\n                usage_stats: {\n                    map_3d: parseInt(usageStats.feed_map_3d || 0),\n                    map_2d: parseInt(usageStats.feed_map_2d || 0),\n                    map_flat: parseInt(usageStats.feed_map_flat || 0),\n                    feed_mosaic: parseInt(usageStats.feed_mosaic || 0),\n                    feed_compact: parseInt(usageStats.feed_compact || 0),\n                    feed_standard: parseInt(usageStats.feed_standard || 0)\n                }\n            },\n            top_users: topUsers,\n            recent_logs: tableData,\n            id_names,\n            timeline\n        }\n    }];\n\n} catch (error) {\n    return [{ json: { error: error.message } }];\n} finally {\n    redis.quit();\n}"
+      },
+      "id": "2018aca3-06ec-4f14-9111-7f3255592b92",
+      "name": "Analyze Logs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9152,
+        -7312
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "136ba414-549e-4d6e-bdcf-a076301763db",
+      "name": "Dashboard Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        9376,
+        -7312
+      ]
+    }
+  ],
+  "connections": {
+    "Dashboard Webhook": {
+      "main": [
+        [
+          {
+            "node": "Analyze Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Logs": {
+      "main": [
+        [
+          {
+            "node": "Dashboard Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

@@ -1,0 +1,194 @@
+.app-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  gap: 1rem;
+
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  z-index: 1000;
+
+  font-size: 0.71rem;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* ── Left: static credit ── */
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.footer-left a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+.footer-left a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* ── Center: ticker / static ── */
+.footer-center {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Static layout (few names — no scroll) */
+.ticker-static {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.ticker-track-static {
+  display: flex;
+  gap: 0;
+  white-space: nowrap;
+}
+
+.ticker-label {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.ticker-wrapper {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Fade edges on the ticker */
+.ticker-wrapper::before,
+.ticker-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.ticker-wrapper::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-secondary), transparent);
+}
+
+.ticker-wrapper::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-secondary), transparent);
+}
+
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: ticker-scroll 24s linear infinite;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+.ticker-item {
+  padding: 0 0.75rem;
+  color: var(--text-muted);
+}
+
+.ticker-item::after {
+  content: '·';
+  margin-left: 0.75rem;
+  color: var(--border-color);
+}
+
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ── Right: links + dev credit ── */
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.footer-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+
+.footer-link:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.footer-kofi:hover {
+  color: #ff5e5b;
+  border-color: rgba(255, 94, 91, 0.5);
+  background: rgba(255, 94, 91, 0.08);
+}
+
+.footer-patreon:hover {
+  color: #ff424d;
+  border-color: rgba(255, 66, 77, 0.5);
+  background: rgba(255, 66, 77, 0.08);
+}
+
+.footer-dev {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-left: 0.5rem;
+  margin-left: 0.1rem;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.footer-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--accent-primary);
+  display: block;
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .footer-center {
+    display: none;
+  }
+
+  .footer-left {
+    font-size: 0.65rem;
+  }
+
+  .footer-right {
+    gap: 0.25rem;
+  }
+}

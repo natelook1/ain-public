@@ -1,0 +1,232 @@
+.compact-row {
+  display: flex;
+  align-items: center;
+  background: linear-gradient(90deg, rgba(231, 76, 60, 0.15) 0%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0) 60%, rgba(46, 204, 113, 0.15) 100%), rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(30, 41, 59, 1); /* slate-800 */
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  font-family: 'Exo 2', sans-serif;
+  gap: 0.5rem; /* Reduced gap slightly to accommodate more elements */
+  transition: background-color 0.2s;
+  min-height: 52px; /* Slightly taller for better spacing */
+  cursor: pointer;
+  position: relative;
+}
+
+.compact-row:hover {
+  background: rgba(30, 41, 59, 0.6); /* slate-800/60 */
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Security Status Colors - SYNCED WITH KillCard.css BORDERS */
+.compact-row.sec-hs { border-left: 4px solid #00e676; } /* Synced: Bright Green */
+.compact-row.sec-ls { border-left: 4px solid #e5b230; }
+.compact-row.sec-ns { border-left: 4px solid #bf2424; }
+.compact-row.sec-poch { border-left: 4px solid #e85d04; }
+.compact-row.sec-wh { border-left: 4px solid #9b59b6; } /* Purple - matches text-sec-wh */
+.compact-row.sec-ab { border-left: 4px solid #428bca; }
+.compact-row.sec-unknown { border-left: 4px solid #7f8c8d; }
+
+/* Columns */
+.compact-col-time {
+  width: 64px;
+  font-family: monospace;
+  color: #64748b; /* slate-500 */
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.compact-col-system {
+  width: 96px;
+  font-weight: 700;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+/* System Security Text Colors - SYNCED WITH KillCard.css TEXT */
+.text-sec-hs { color: #27c42d; } /* Synced: Standard Green */
+.text-sec-ls { color: #e5b230; }
+.text-sec-ns { color: #bf2424; }
+.text-sec-poch { color: #e85d04; }
+.text-sec-wh { color: #9b59b6; } /* Synced: Purple Text */
+.text-sec-ab { color: #428bca; }
+.text-sec-unknown { color: #7f8c8d; }
+
+.compact-col-pilot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.compact-col-pilot.right {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.compact-col-center {
+  color: #475569; /* slate-600 */
+  font-size: 0.65rem;
+  font-style: italic;
+  padding: 0 0.25rem;
+  flex-shrink: 0;
+  min-width: 40px; /* Ensure space for label */
+  display: flex;
+  justify-content: center;
+}
+
+.compact-col-value {
+  width: 80px;
+  text-align: right;
+  font-family: monospace;
+  color: #f59e0b; /* amber-500 */
+  font-weight: 700;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* ISK Colors */
+.isk-value { font-family: 'Orbitron', sans-serif; font-weight: 700; }
+.isk-value .unit { font-size: 0.8em; opacity: 0.8; margin-left: 1px; }
+.isk-grey { color: #bdc3c7; }
+.isk-blue { color: #3498db; }
+.isk-green { color: #2ecc71; }
+.isk-yellow { color: #f1c40f; }
+.isk-orange { color: #e67e22; }
+.isk-red { color: #e74c3c; }
+.isk-white { color: #ffffff; text-shadow: 0 0 8px rgba(255, 255, 255, 0.5); }
+
+/* Text Elements */
+.compact-text-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.compact-text-group.right {
+  align-items: flex-end;
+}
+
+.compact-name {
+  font-weight: 700;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.compact-corp {
+  color: #64748b; /* slate-500 */
+  font-size: 0.65rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+/* Additional Info (Desktop Only) */
+.compact-ship-name {
+  color: #94a3b8; /* slate-400 */
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  font-weight: 500;
+}
+
+/* Images */
+.compact-ship-wrapper {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.compact-ship-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #020617; /* slate-950 */
+}
+
+/* Standalone Emblem (Beside ship) */
+.compact-emblem {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: #000;
+  flex-shrink: 0;
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* Fleet Badge */
+.compact-fleet-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: rgba(15, 23, 42, 0.95);
+  color: #60a5fa; /* blue-400 */
+  border: 1px solid #3b82f6;
+  font-size: 0.6rem;
+  padding: 0 3px;
+  border-radius: 3px;
+  line-height: 1.2;
+  font-weight: 700;
+  z-index: 11;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  cursor: help;
+}
+
+/* Compact Labels */
+.compact-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+.compact-label.loss { color: #f87171; background: rgba(153, 27, 27, 0.2); border: 1px solid #991b1b; }
+.compact-label.kill { color: #4ade80; background: rgba(22, 101, 52, 0.2); border: 1px solid #166534; }
+.compact-label.assist { color: #facc15; background: rgba(133, 77, 14, 0.2); border: 1px solid #854d0e; }
+
+/* Colors */
+.text-red { color: #f87171; }
+.text-green { color: #4ade80; }
+.border-red { border-color: rgba(248, 113, 113, 0.4); }
+.border-green { border-color: rgba(74, 222, 128, 0.4); }
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+    .compact-ship-name { display: none; }
+}
+
+@media (max-width: 768px) {
+    .compact-row { gap: 0.375rem; padding: 0.25rem 0.5rem; min-height: 44px; }
+    .compact-col-time { display: none; }
+    .compact-col-system { width: 70px; font-size: 0.75rem; }
+    .compact-col-value { width: 60px; font-size: 0.65rem; }
+    
+    .compact-ship-wrapper { width: 28px; height: 28px; }
+    .compact-emblem { width: 20px; height: 20px; }
+    
+    .compact-name { font-size: 0.7rem; }
+    .compact-corp { display: none; }
+    
+    .compact-fleet-badge {
+        font-size: 0.5rem;
+        top: -4px;
+        right: -4px;
+        padding: 0 2px;
+    }
+}

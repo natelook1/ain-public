@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <link rel="icon" href="ain.jpg">
+    <title>AIN - R2Z2 Flow Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        /* Global Reset */
+        * { box-sizing: border-box; }
+
+        :root {
+            --bg-color: #0d0f12;
+            --card-bg: #16191e;
+            --text-primary: #e0e0e0;
+            --text-secondary: #9ca3af;
+            --border-color: #262a33;
+            --accent-color: #3b82f6;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --error-color: #ef4444;
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-color);
+            padding: 12px;
+            color: var(--text-primary);
+            margin: 0;
+            overflow-y: auto; 
+            overflow-x: hidden;
+            min-height: 100vh;
+            width: 100vw;
+        }
+
+        /* --- Scrollbar Styling --- */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+        /* --- Tooltips --- */
+        .tooltip-trigger { position: relative; cursor: help; border-bottom: 1px dotted rgba(156, 163, 175, 0.4); display: inline-block; }
+        .tooltip-trigger:hover { border-bottom-color: var(--accent-color); }
+        
+        .tooltip-content {
+            visibility: hidden; opacity: 0; position: absolute; z-index: 99999; 
+            bottom: 125%; left: 50%; transform: translateX(-50%); 
+            width: max-content; max-width: 220px;
+            padding: 8px 12px; background: #1f2430;
+            color: var(--text-primary); text-align: center; border-radius: 6px; border: 1px solid var(--border-color);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8); transition: all 0.2s ease; font-size: 0.75rem; 
+            font-weight: 500; line-height: 1.4; pointer-events: none;
+        }
+        .tooltip-content::after {
+            content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px;
+            border-width: 5px; border-style: solid; border-color: #1f2430 transparent transparent transparent;
+        }
+
+        .force-down .tooltip-content { bottom: auto; top: 125%; }
+        .force-down .tooltip-content::after { top: auto; bottom: 100%; border-color: transparent transparent #1f2430 transparent; }
+        .tooltip-trigger:hover .tooltip-content { visibility: visible; opacity: 1; transform: translateX(-50%) translateY(-5px); }
+        .force-down.tooltip-trigger:hover .tooltip-content { transform: translateX(-50%) translateY(5px); }
+
+        /* --- Header --- */
+        .header {
+            display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 15px;
+            padding-bottom: 10px; border-bottom: 1px solid var(--border-color); width: 100%;
+        }
+        .header-left { display: flex; align-items: center; gap: 15px; }
+        
+        .header-logo-container {
+            width: 48px; height: 48px; border-radius: 50%; border: 2px solid #00d4ff;
+            overflow: hidden; box-shadow: 0 0 12px rgba(0,212,255,0.3); transition: transform 0.2s;
+            background: #1a1f2e; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .header-logo-container:hover { transform: scale(1.08); border-color: #fff; }
+        .header-logo { width: 100%; height: 100%; object-fit: cover; }
+
+        .header-text h1 { margin: 0; font-size: 1.25em; font-weight: 400; color: #fff; letter-spacing: 0.5px; white-space: nowrap; }
+        .header-text .subtitle { color: var(--text-secondary); font-size: 0.7em; margin-top: 2px; }
+
+        .controls-right { display: flex; align-items: center; gap: 15px; }
+        .discord-link {
+            display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+            background: #5865F2; color: white; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 0.8em;
+        }
+
+        /* --- Grid --- */
+        .dashboard-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: 240px 300px minmax(200px, 1fr);
+            gap: 12px; height: calc(100vh - 85px); min-height: 750px; width: 100%;
+        }
+
+        .card {
+            background: var(--card-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);
+            position: relative; cursor: grab; display: flex; flex-direction: column;
+            box-shadow: var(--card-shadow); overflow: visible; transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+            z-index: 1; min-width: 0; 
+        }
+        
+        .card:hover { z-index: 10; } 
+        .card:active { cursor: grabbing; }
+        .card.dragging { opacity: 0.4; border: 1px dashed var(--accent-color); transform: scale(0.98); }
+
+        h2 {
+            margin: -12px -12px 8px -12px; padding: 8px 12px; font-size: 0.75em;
+            color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
+            background: rgba(255,255,255,0.01); display: flex; justify-content: space-between; align-items: center;
+            border-top-left-radius: 8px; border-top-right-radius: 8px; flex-shrink: 0; pointer-events: none; 
+        }
+
+        .status-tag { padding: 3px 10px; border-radius: 4px; font-size: 0.85em; font-weight: 800; text-transform: uppercase; border: 1px solid transparent; letter-spacing: 0.5px; }
+
+        /* --- Activity Profile --- */
+        .activity-main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .activity-box { background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); padding: 10px; border-radius: 6px; text-align: center; }
+        .activity-val { font-size: 2.1em; font-weight: 800; color: #fff; display: flex; align-items: center; justify-content: center; gap: 6px; font-family: 'JetBrains Mono', monospace; }
+        .activity-lbl { font-size: 0.6em; color: var(--text-secondary); text-transform: uppercase; margin-top: 2px; display: block; }
+
+        .chip-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .chip { background: #1c2128; border: 1px solid var(--border-color); padding: 8px 5px; border-radius: 6px; text-align: center; }
+        .chip-val { font-size: 1.3em; font-weight: 700; color: #fff; display: block; font-family: 'JetBrains Mono', monospace; }
+        .chip-lbl { font-size: 0.65em; color: var(--accent-color); text-transform: uppercase; font-weight: 700; }
+
+        /* --- Command UI (Tension) --- */
+        .command-efficiency-container { margin-bottom: 6px; padding: 0 4px; }
+        .efficiency-bar-wrapper { background: #23272e; height: 10px; border-radius: 5px; overflow: visible; position: relative; border: 1px solid rgba(255,255,255,0.05); }
+        .efficiency-bar-fill { height: 100%; width: 50%; border-radius: 4px; transition: width 1s cubic-bezier(0.25, 1, 0.5, 1), background-color 1s; background: var(--accent-color); }
+        .efficiency-bar-wrapper::after { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: rgba(255,255,255,0.3); z-index: 10; }
+        .efficiency-label-row { display: flex; justify-content: space-between; font-size: 0.6em; color: var(--text-secondary); margin-top: 4px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+
+        .status-row { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 8px; white-space: nowrap; }
+        .mode-tag { padding: 2px 8px; border-radius: 3px; font-size: 0.75em; font-weight: 800; text-transform: uppercase; border: 1px solid transparent; letter-spacing: 0.5px; font-family: 'JetBrains Mono', monospace; }
+        .mode-active { background: rgba(16, 185, 129, 0.1); color: var(--success-color); border-color: var(--success-color); }
+        .mode-sync { background: rgba(59, 130, 246, 0.1); color: var(--accent-color); border-color: var(--accent-color); }
+        .mode-wait { background: rgba(245, 158, 11, 0.1); color: var(--warning-color); border-color: var(--warning-color); }
+        .mode-soft { background: rgba(139, 92, 246, 0.1); color: #a78bfa; border-color: #a78bfa; }
+
+        .lever-system { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; align-items: start; }
+        .lever { text-align: center; background: rgba(255,255,255,0.03); padding: 6px 2px; border-radius: 6px; }
+        .lever-val { font-size: 1.3em; font-weight: 800; display: block; font-family: 'JetBrains Mono', monospace; margin-bottom: 1px; }
+        .lever-lbl { font-size: 0.6em; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; }
+
+        .sub-data { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .sub-data-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .sub-data-lbl { font-size: 0.55em; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0px; }
+        .sub-data-val { font-family: 'JetBrains Mono', monospace; font-size: 0.95em; font-weight: 800; color: #fff; }
+
+        /* Grid Placement */
+        [data-card-id="activity"] { grid-column: span 3; }
+        [data-card-id="command"] { grid-column: span 3; }
+        [data-card-id="kpm-chart"] { grid-column: span 3; }
+        [data-card-id="traffic-chart"] { grid-column: span 3; }
+        [data-card-id="logs"] { grid-column: span 6; }
+
+        .chart-wrap { flex-grow: 1; position: relative; min-height: 0; width: 100%; }
+        
+        .table-wrap { flex: 1 1 0; overflow-y: auto; overflow-x: auto; border-radius: 4px; background: rgba(0,0,0,0.15); min-height: 0; width: 100%; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
+        th { text-align: left; padding: 8px 12px; background: #1c2128; color: var(--text-secondary); position: sticky; top: 0; z-index: 10; text-transform: uppercase; font-size: 0.75em; }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--border-color); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .overlay { position: fixed; inset: 0; background: var(--bg-color); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: 0.4s; }
+        .overlay.visible { opacity: 1; pointer-events: all; }
+
+        /* --- MOBILE ADAPTATION --- */
+        @media (max-width: 1024px) {
+            body { height: auto; padding: 8px; overflow-x: hidden; }
+            .header { flex-wrap: nowrap; gap: 10px; margin-bottom: 15px; align-items: center; justify-content: space-between; }
+            .header-left { flex: 1; min-width: 0; gap: 10px; overflow: hidden; }
+            .header-logo-container { width: 40px; height: 40px; flex-shrink: 0; }
+            .header-text { min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
+            .header-text h1 { font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .header-text .subtitle { font-size: 0.65em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .controls-right { width: auto; flex-shrink: 0; gap: 8px; }
+            .controls-right > div > span { display: none; }
+            .discord-link { padding: 6px 8px; font-size: 0.75em; }
+            .dashboard-grid { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; gap: 16px; width: 100%; }
+
+            [data-card-id="activity"], [data-card-id="command"], [data-card-id="kpm-chart"], [data-card-id="traffic-chart"], [data-card-id="logs"] { grid-column: span 1 !important; }
+            [data-card-id="command"] { order: 1; }
+            [data-card-id="traffic-chart"] { order: 2; }
+            [data-card-id="activity"] { order: 3; }
+            [data-card-id="kpm-chart"] { order: 4; }
+            [data-card-id="logs"] { order: 5; }
+            .card { height: auto; min-height: 260px; padding: 12px; }
+            .table-wrap { max-height: 450px; flex: initial; }
+        }
+    </style>
+</head>
+<body>
+    <div id="connection-overlay" class="overlay visible">
+        <div style="width:40px; height:40px; border:3px solid var(--accent-color); border-top-color:transparent; border-radius:50%; animation: spin 1s infinite linear;"></div>
+        <div style="margin-top:20px; letter-spacing:2px; font-weight:300;">CONNECTING...</div>
+    </div>
+
+    <div class="header">
+        <div class="header-left">
+            <a href="https://ain.looknet.ca" target="_blank" class="header-logo-container" title="Visit AIN Home">
+                <img src="ain.jpg" class="header-logo" onerror="this.src='https://via.placeholder.com/48/16191e/00d4ff?text=AIN'">
+            </a>
+            <div class="header-text">
+                <h1>R2Z2 Flow Monitor</h1>
+                <div class="subtitle">EVE Online Ingestion • Streak Gated v7.3</div>
+            </div>
+        </div>
+        <div class="controls-right">
+            <a href="https://discord.gg/p3xZUuwNGU" target="_blank" class="discord-link"><i class="fab fa-discord"></i> Discord</a>
+        </div>
+    </div>
+
+    <div class="dashboard-grid" id="dashboard-grid">
+        <div class="card" data-card-id="activity" draggable="true">
+            <h2>
+                <span><i class="fas fa-bolt" style="color:var(--warning-color); margin-right:8px;"></i> Activity Profile</span>
+                <div id="activity-level-container"></div>
+            </h2>
+            <div class="activity-main">
+                <div class="activity-box tooltip-trigger force-down">
+                    <div class="activity-val" id="current-kpm">0.00</div>
+                    <span class="activity-lbl">15M Smoothed KPM</span>
+                    <div class="tooltip-content">Killmail velocity (15m sliding window).</div>
+                </div>
+                <div class="activity-box tooltip-trigger force-down">
+                    <span class="activity-val" id="avg-kpm">0.00</span>
+                    <span class="activity-lbl">Session AVG KPM</span>
+                    <div class="tooltip-content">Overall average since session start.</div>
+                </div>
+            </div>
+            <div class="chip-row">
+                <div class="chip tooltip-trigger force-down">
+                    <span class="chip-val" id="lag-value">0</span>
+                    <span class="chip-lbl">Tip Lag</span>
+                    <div class="tooltip-content">IDs behind the latest sequence.</div>
+                </div>
+                <div class="chip tooltip-trigger force-down">
+                    <span class="chip-val" id="req-min">0.0</span>
+                    <span class="chip-lbl">Req/m</span>
+                    <div class="tooltip-content">API Polls per Minute (Target: ~12).</div>
+                </div>
+                <div class="chip tooltip-trigger force-down">
+                    <span class="chip-val" id="peak-kpm">0.00</span>
+                    <span class="chip-lbl">Peak</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-card-id="command" draggable="true">
+            <h2>
+                <span><i class="fas fa-microchip" style="color:var(--success-color); margin-right:8px;"></i> Flow Control</span>
+                <span id="status-display" style="font-weight:800; color:var(--success-color);">ONLINE</span>
+            </h2>
+            
+            <div class="command-efficiency-container tooltip-trigger force-down">
+                <div class="efficiency-bar-wrapper">
+                    <div class="efficiency-bar-fill" id="tension-gauge-fill"></div>
+                </div>
+                <div class="efficiency-label-row">
+                    <span>BACK-OFF</span>
+                    <span id="tension-label">BALANCED</span>
+                    <span>PRESSURE</span>
+                </div>
+                <div class="tooltip-content">System Tension: Batch Size vs. API Resistance.</div>
+            </div>
+
+            <div class="status-row">
+                <div id="mode-display"></div>
+            </div>
+
+            <div class="lever-system">
+                <div class="lever batch tooltip-trigger force-down">
+                    <span class="lever-val" id="cur-batch" style="color:var(--accent-color);">1</span>
+                    <span class="lever-lbl">Payload</span>
+                    <div class="tooltip-content">Current IDs pulled per 5s cycle.</div>
+                </div>
+                <div class="lever tooltip-trigger force-down">
+                    <span class="lever-val" id="hit-rate" style="color:var(--success-color);">0%</span>
+                    <span class="lever-lbl">Efficiency</span>
+                    <div class="tooltip-content">Success rate of recent batches.</div>
+                </div>
+                <div class="lever sleep tooltip-trigger force-down">
+                    <span class="lever-val" id="base-sleep" style="color:var(--text-secondary);">5000ms</span>
+                    <span class="lever-lbl">Rate</span>
+                    <div class="tooltip-content">Static poll floor (Min 5000ms).</div>
+                </div>
+            </div>
+
+            <div class="sub-data">
+                <div class="sub-data-item tooltip-trigger force-down">
+                    <span class="sub-data-lbl"><i class="fas fa-ban" style="color:var(--warning-color)"></i> 404/min</span>
+                    <span class="sub-data-val" id="404-per-min">0</span>
+                    <div class="tooltip-content">Total 404s in the last 60 seconds.</div>
+                </div>
+                <div class="sub-data-item tooltip-trigger force-down">
+                    <span class="sub-data-lbl">K/Batch</span>
+                    <span class="sub-data-val" id="k-per-batch">0.0</span>
+                    <div class="tooltip-content">Avg. Killmails found per batch.</div>
+                </div>
+                <div class="sub-data-item tooltip-trigger force-down">
+                    <span class="sub-data-lbl">Seq Tip</span>
+                    <span class="sub-data-val" id="cur-seq">0000</span>
+                    <div class="tooltip-content">Latest Sequence ID.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-card-id="kpm-chart" draggable="true">
+            <h2><span><i class="fas fa-chart-line"></i> Velocity</span></h2>
+            <div class="chart-wrap"><canvas id="kpmChart"></canvas></div>
+        </div>
+
+        <div class="card" data-card-id="traffic-chart" draggable="true">
+            <h2><span><i class="fas fa-chart-bar"></i> Traffic & Latency</span></h2>
+            <div class="chart-wrap"><canvas id="responseChart"></canvas></div>
+        </div>
+
+        <div class="card" data-card-id="logs" draggable="true">
+            <h2><span><i class="fas fa-terminal"></i> Ingestion Log</span></h2>
+            <div class="table-wrap">
+                <table id="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Seq</th>
+                            <th>Batch</th>
+                            <th>Found</th>
+                            <th>Sleep</th>
+                            <th>KPM</th>
+                            <th>Mode</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const WEBHOOK_URL = 'https://api-ain.looknet.ca/webhook/r2z2-stats';
+        let charts = { kpm: null, response: null };
+        let refreshTimer = null;
+
+        const trendDebouncer = {
+            lastCalculated: 'flat', lastDisplayedTrend: 'flat', debounceCount: 0,
+            getTrend: function(current, past) {
+                const threshold = Math.max(0.2, past * 0.05);
+                let calc = 'flat';
+                if (current - past > threshold) calc = 'up';
+                else if (current - past < -threshold) calc = 'down';
+                if (calc === this.lastCalculated) this.debounceCount++;
+                else { this.debounceCount = 0; this.lastCalculated = calc; }
+                if (this.debounceCount >= 3) this.lastDisplayedTrend = calc;
+                return {
+                    icon: this.lastDisplayedTrend === 'up' ? '↗' : (this.lastDisplayedTrend === 'down' ? '↘' : '→'),
+                    color: this.lastDisplayedTrend === 'up' ? 'var(--success-color)' : (this.lastDisplayedTrend === 'down' ? 'var(--error-color)' : 'var(--text-secondary)')
+                };
+            }
+        };
+
+        function getActivityLevel(kpm) {
+            if (kpm < 0.5) return { label: 'QUIET', color: 'var(--text-secondary)' };
+            if (kpm < 5) return { label: 'LOW', color: 'var(--success-color)' };
+            if (kpm < 20) return { label: 'ACTIVE', color: 'var(--accent-color)' };
+            if (kpm < 60) return { label: 'HIGH', color: '#a855f7' };
+            return { label: 'BURNING', color: '#ff6b6b' };
+        }
+
+        async function fetchData() {
+            try {
+                // FORCE REFRESH: Add timestamp query param and no-store header to bypass browser caching
+                const response = await fetch(`${WEBHOOK_URL}?_t=${Date.now()}`, { cache: 'no-store' });
+                let data = await response.json();
+                
+                // CRITICAL FIX: Extract the object if n8n returned it inside an array
+                if (Array.isArray(data) && data.length > 0) {
+                    data = data[0];
+                }
+
+                document.getElementById('connection-overlay').classList.remove('visible');
+                render(data);
+            } catch (err) {
+                console.error("Fetch error: ", err);
+                document.getElementById('connection-overlay').classList.add('visible');
+            }
+        }
+
+        function render(data) {
+            const logs = data.recent_logs || [];
+            const s = data.summary || {};
+            const m = data.metrics || {};
+            const lastLog = logs[0] || {};
+
+            // 1. Basic Stats
+            const curKpm = parseFloat(s.current_kpm || 0);
+            const avgKpm = parseFloat(s.kills_per_min || 0);
+            const trend = trendDebouncer.getTrend(curKpm, avgKpm);
+            
+            document.getElementById('current-kpm').innerHTML = `${curKpm.toFixed(2)} <span style="color:${trend.color}; font-size:0.6em; margin-left:4px;">${trend.icon}</span>`;
+            document.getElementById('avg-kpm').innerText = avgKpm.toFixed(2);
+            document.getElementById('peak-kpm').innerText = parseFloat(s.peak_kpm || 0).toFixed(2);
+            document.getElementById('req-min').innerText = parseFloat(s.reqs_per_min || 0).toFixed(1);
+            
+            const lag = s.current_lag || 0;
+            const lagEl = document.getElementById('lag-value');
+            lagEl.innerText = lag;
+            lagEl.style.color = lag > 50 ? 'var(--warning-color)' : '#fff';
+
+            const level = getActivityLevel(curKpm);
+            document.getElementById('activity-level-container').innerHTML = `<span class="status-tag" style="color:${level.color}; border-color:${level.color};">${level.label}</span>`;
+
+            document.getElementById('status-display').innerHTML = data.status === 'active' ? `<span style="color:var(--success-color);"><i class="fas fa-circle"></i> ONLINE</span>` : `<span style="color:var(--error-color);"><i class="fas fa-circle"></i> OFFLINE</span>`;
+
+            // 2. Command Card - TENSION LOGIC
+            const batch = parseInt(m.current_batch_size || 1);
+            const hitRate = parseFloat(s.hit_rate || 0);
+            const sleep = parseInt(lastLog.sleep_ms || 5000);
+
+            let tension = 50;
+            const isBackingOff = sleep > 5000;
+
+            if (isBackingOff) {
+                const penalty = Math.min(10000, sleep - 5000);
+                tension = 50 - ((penalty / 10000) * 50); 
+            } else {
+                if (batch < 2) {
+                    tension = 45; 
+                } else if (batch === 2) {
+                    tension = 50; 
+                } else {
+                    tension = 50 + ((batch - 2) * 16.66);
+                }
+                if (tension > 100) tension = 100;
+            }
+
+            const gauge = document.getElementById('tension-gauge-fill');
+            const tLbl = document.getElementById('tension-label');
+            gauge.style.width = tension + '%';
+
+            if (tension < 40) {
+                tLbl.innerText = "BACKING OFF";
+                tLbl.style.color = "var(--warning-color)";
+                gauge.style.background = "linear-gradient(90deg, var(--error-color), var(--warning-color))";
+            } else if (tension > 60) {
+                tLbl.innerText = "HIGH PRESSURE";
+                tLbl.style.color = "var(--success-color)";
+                gauge.style.background = "linear-gradient(90deg, var(--accent-color), var(--success-color))";
+            } else {
+                tLbl.innerText = "BALANCED FLOW";
+                tLbl.style.color = "var(--text-secondary)";
+                gauge.style.background = "var(--accent-color)";
+            }
+
+            let modeStr = lastLog.mode || 'Flowing';
+            let modeClass = 'mode-active';
+            if (modeStr.includes('Sync') || modeStr.includes('Tip')) modeClass = 'mode-sync';
+            if (modeStr.includes('Backing')) modeClass = 'mode-wait';
+            if (modeStr.includes('Soft Fail')) modeClass = 'mode-soft';
+            
+            document.getElementById('mode-display').innerHTML = `<span class="mode-tag ${modeClass}">${modeStr}</span>`;
+            
+            document.getElementById('cur-batch').innerText = batch;
+            document.getElementById('hit-rate').innerText = Math.round(hitRate) + '%';
+            document.getElementById('base-sleep').innerText = sleep + 'ms';
+            
+            if (sleep > 5000) document.getElementById('base-sleep').style.color = 'var(--warning-color)';
+            else document.getElementById('base-sleep').style.color = 'var(--text-secondary)';
+
+            const now = new Date();
+            const oneMinAgo = new Date(now.getTime() - 60000);
+            const recentErrors = logs.filter(l => new Date(l.ts) > oneMinAgo)
+                                     .reduce((acc, l) => acc + (l.not_found || 0), 0);
+            const errorEl = document.getElementById('404-per-min');
+            errorEl.innerText = recentErrors;
+            errorEl.style.color = recentErrors > 5 ? 'var(--warning-color)' : '#fff';
+            // K/Batch Calculation
+            const validBatches = logs.filter(l => l.batch > 0).slice(0, 20); // Last 20 attempts
+            let kPerBatch = "0.0";
+            if (validBatches.length > 0) {
+                const totalFound = validBatches.reduce((acc, l) => acc + (l.found || 0), 0);
+                kPerBatch = (totalFound / validBatches.length).toFixed(1);
+            }
+            document.getElementById('k-per-batch').innerText = kPerBatch;
+            document.getElementById('cur-seq').innerText = String(m.last_sequence || 0).slice(-4);
+
+
+            // 3. Logs Table
+            const tbody = document.querySelector('#logs-table tbody');
+            tbody.innerHTML = '';
+            logs.slice(0, 50).forEach(l => {
+                const row = document.createElement('tr');
+                const seqStr = l.seq ? String(l.seq).slice(-4) : '----';
+                const batchVal = l.batch || '-';
+                const modeVal = l.mode || 'N/A';
+
+                row.innerHTML = `
+                    <td>${new Date(l.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</td>
+                    <td>${seqStr}</td>
+                    <td style="color:${batchVal > 5 ? 'var(--accent-color)' : 'inherit'}; font-weight:${batchVal > 5 ? '800' : 'normal'}">${batchVal}</td>
+                    <td style="color:${l.found > 0 ? 'var(--success-color)' : 'inherit'}">${l.found}</td>
+                    <td>${l.sleep_ms}</td>
+                    <td>${l.kpm}</td>
+                    <td><span class="mode-tag" style="font-size:0.65em; opacity:0.8;">${modeVal}</span></td>
+                `;
+                tbody.appendChild(row);
+            });
+            updateCharts(logs);
+        }
+
+        function updateCharts(logs) {
+            const reversed = [...logs].reverse();
+            const labels = reversed.map(l => new Date(l.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}));
+            
+            if (!charts.kpm) {
+                charts.kpm = new Chart(document.getElementById('kpmChart'), {
+                    type: 'line', data: { labels, datasets: [{ label: 'KPM', data: reversed.map(l => l.kpm), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.3, pointRadius: 0 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: '#262a33' }, ticks: { color: '#9ca3af', font: { size: 10 } } } } }
+                });
+            } else { charts.kpm.data.labels = labels; charts.kpm.data.datasets[0].data = reversed.map(l => l.kpm); charts.kpm.update('none'); }
+            
+            if (!charts.response) {
+                charts.response = new Chart(document.getElementById('responseChart'), {
+                    data: {
+                        labels, datasets: [
+                            { type: 'line', label: 'Latency (ms)', data: reversed.map(l => l.dur_ms), borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, tension: 0.1, yAxisID: 'y1' },
+                            { type: 'bar', label: 'Found', data: reversed.map(l => l.found), backgroundColor: '#10b981', stack: 'stack1', yAxisID: 'y' },
+                            { type: 'bar', label: 'Empty', data: reversed.map(l => l.not_found), backgroundColor: '#f59e0b', stack: 'stack1', yAxisID: 'y' }
+                        ]
+                    },
+                    options: { 
+                        responsive: true, maintainAspectRatio: false, 
+                        plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 } } } }, 
+                        scales: { 
+                            x: { display: false, stacked: true }, 
+                            y: { stacked: true, grid: { color: '#262a33' }, ticks: { font: { size: 10 }, beginAtZero: true } },
+                            y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#fff', font: { size: 10 }, beginAtZero: true } }
+                        } 
+                    }
+                });
+            } else { 
+                charts.response.data.labels = labels; 
+                charts.response.data.datasets[0].data = reversed.map(l => l.dur_ms);
+                charts.response.data.datasets[1].data = reversed.map(l => l.found);
+                charts.response.data.datasets[2].data = reversed.map(l => l.not_found);
+                charts.response.update('none'); 
+            }
+        }
+
+        function initDrag() {
+            const grid = document.getElementById('dashboard-grid');
+            let dragged = null;
+
+            const savedLayout = localStorage.getItem('ain-dashboard-layout');
+            if (savedLayout) {
+                try {
+                    const order = JSON.parse(savedLayout);
+                    order.forEach(id => {
+                        const card = grid.querySelector(`[data-card-id="${id}"]`);
+                        if (card) grid.appendChild(card);
+                    });
+                } catch (e) { console.error('Layout restore error', e); }
+            }
+
+            const cards = grid.querySelectorAll('.card');
+            cards.forEach(card => {
+                card.setAttribute('draggable', 'true');
+                
+                card.addEventListener('dragstart', function(e) {
+                    dragged = this;
+                    this.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+
+                card.addEventListener('dragend', function() {
+                    this.classList.remove('dragging');
+                    dragged = null;
+                    const newOrder = Array.from(grid.children).map(c => c.getAttribute('data-card-id'));
+                    localStorage.setItem('ain-dashboard-layout', JSON.stringify(newOrder));
+                });
+            });
+
+            grid.addEventListener('dragover', function(e) {
+                e.preventDefault(); 
+                e.dataTransfer.dropEffect = 'move';
+                
+                const target = e.target.closest('.card');
+                if (target && target !== dragged) {
+                    const box = target.getBoundingClientRect();
+                    const offsetHelper = (e.clientX - box.left) / box.width; 
+                    
+                    if (offsetHelper > 0.5) {
+                        grid.insertBefore(dragged, target.nextSibling);
+                    } else {
+                        grid.insertBefore(dragged, target);
+                    }
+                }
+            });
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            if (charts.kpm) charts.kpm.resize();
+            if (charts.response) charts.response.resize();
+        });
+        document.querySelectorAll('.card').forEach(c => resizeObserver.observe(c));
+
+        fetchData();
+        refreshTimer = setInterval(fetchData, 10000);
+        
+        initDrag();
+    </script>
+</body>
+</html>

@@ -1,0 +1,505 @@
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1.5rem;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  height: 64px;
+  position: relative;
+  z-index: 1001;
+}
+
+/* --- GLOBAL THEME VARIABLES (Applied via .app) --- */
+
+/* Default / Dark Theme (Blue-tinted dark) */
+.app.dark {
+  --bg-primary: #0a0e1a;
+  --bg-secondary: #12182b;
+  --bg-tertiary: #1a2235;
+  --text-primary: #e0e6f0;
+  --text-secondary: #a0a8b8;
+  --border-color: #2a3347;
+  --accent-primary: #3b82f6;
+  --accent-primary-faded: rgba(59, 130, 246, 0.5);
+  --accent-bg: rgba(59, 130, 246, 0.15);
+}
+
+/* Amarr Theme (Gold/Amber) */
+.app.amarr {
+  --bg-primary: #140f05;
+  --bg-secondary: #221a0a;
+  --bg-tertiary: #332810;
+  --text-primary: #fef3c7;
+  --text-secondary: #fcd34d;
+  --border-color: #92400e;
+  --accent-primary: #f59e0b;
+  --accent-primary-faded: rgba(245, 158, 11, 0.5);
+  --accent-bg: rgba(245, 158, 11, 0.15);
+}
+
+/* Caldari Theme (Steel Blue) */
+.app.caldari {
+  --bg-primary: #080c14;
+  --bg-secondary: #0e1420;
+  --bg-tertiary: #151d2e;
+  --text-primary: #dbeafe;
+  --text-secondary: #93c5fd;
+  --border-color: #1e3a5f;
+  --accent-primary: #3b82f6;
+  --accent-primary-faded: rgba(59, 130, 246, 0.5);
+  --accent-bg: rgba(59, 130, 246, 0.15);
+}
+
+/* Gallente Theme (Emerald Green) */
+.app.gallente {
+  --bg-primary: #05140d;
+  --bg-secondary: #0a2015;
+  --bg-tertiary: #102e1e;
+  --text-primary: #d1fae5;
+  --text-secondary: #6ee7b7;
+  --border-color: #065f46;
+  --accent-primary: #10b981;
+  --accent-primary-faded: rgba(16, 185, 129, 0.5);
+  --accent-bg: rgba(16, 185, 129, 0.15);
+}
+
+/* Minmatar Theme (Rust/Orange) */
+.app.minmatar {
+  --bg-primary: #140a05;
+  --bg-secondary: #22140a;
+  --bg-tertiary: #331e10;
+  --text-primary: #fed7aa;
+  --text-secondary: #fb923c;
+  --border-color: #7c2d12;
+  --accent-primary: #f97316;
+  --accent-primary-faded: rgba(249, 115, 22, 0.5);
+  --accent-bg: rgba(249, 115, 22, 0.15);
+}
+
+/* Triglavian Theme (Deep Crimson) */
+.app.triglavian {
+  --bg-primary: #140508;
+  --bg-secondary: #220a10;
+  --bg-tertiary: #331018;
+  --text-primary: #fecdd3;
+  --text-secondary: #fb7185;
+  --border-color: #881337;
+  --accent-primary: #e11d48;
+  --accent-primary-faded: rgba(225, 29, 72, 0.5);
+  --accent-bg: rgba(225, 29, 72, 0.15);
+}
+
+/* ORE Theme (Industrial Yellow) */
+.app.ore {
+  --bg-primary: #141005;
+  --bg-secondary: #221c0a;
+  --bg-tertiary: #332a10;
+  --text-primary: #fef9c3;
+  --text-secondary: #fde047;
+  --border-color: #854d0e;
+  --accent-primary: #eab308;
+  --accent-primary-faded: rgba(234, 179, 8, 0.5);
+  --accent-bg: rgba(234, 179, 8, 0.15);
+}
+
+/* SOE Theme (Silver/Red) */
+.app.soe {
+  --bg-primary: #0f0f14;
+  --bg-secondary: #1a1a22;
+  --bg-tertiary: #252530;
+  --text-primary: #f0f0f5;
+  --text-secondary: #b0b0c0;
+  --border-color: #353545;
+  --accent-primary: #dc2626;
+  --accent-primary-faded: rgba(220, 38, 38, 0.5);
+  --accent-bg: rgba(220, 38, 38, 0.15);
+}
+
+/* EDENCOM Theme (Cyan/Teal) */
+.app.edencom {
+  --bg-primary: #051014;
+  --bg-secondary: #0a1c22;
+  --bg-tertiary: #102a32;
+  --text-primary: #e0f7fa;
+  --text-secondary: #67e8f9;
+  --border-color: #0e4a5c;
+  --accent-primary: #06b6d4;
+  --accent-primary-faded: rgba(6, 182, 212, 0.5);
+  --accent-bg: rgba(6, 182, 212, 0.15);
+}
+
+/* Custom Theme (variables set inline via ThemeContext) */
+.app.custom {
+  /* palette applied dynamically - this selector ensures transitions work */
+}
+
+/* Light Theme (Pleasant Mode) */
+.app.light {
+  --bg-primary: #f1f5f9; /* Slate 100 */
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e2e8f0; /* Slate 200 */
+  --text-primary: #0f172a; /* Slate 900 */
+  --text-secondary: #64748b; /* Slate 500 */
+  --border-color: #cbd5e1; /* Slate 300 */
+  --accent-primary: #3b82f6; /* Blue 500 */
+  --accent-primary-faded: rgba(59, 130, 246, 0.2);
+  --accent-bg: rgba(59, 130, 246, 0.1);
+  
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-hover: #f8fafc;
+}
+
+/* Global Light Mode Overrides for Kill Cards */
+.app.light .kill-card,
+.app.light .kill-item {
+  background-color: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}
+
+.app.light .kill-card:hover,
+.app.light .kill-item:hover {
+  background-color: var(--card-hover) !important;
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06) !important;
+}
+
+/* Apply global background to main app container */
+.app {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  padding-bottom: 28px; /* Reserve space for fixed footer */
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.logo-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.logo-container {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--accent-primary);
+  box-shadow: 0 0 15px var(--accent-primary-faded, rgba(59, 130, 246, 0.5));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000;
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.logo-container:hover {
+  box-shadow: 0 0 20px var(--accent-primary);
+  transform: scale(1.05);
+}
+
+.app-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.app-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+  margin: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* KPM Display */
+.kpm-display {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  margin-right: 8px;
+  cursor: help;
+  transition: border-color 0.2s;
+}
+
+.kpm-display:hover {
+  border-color: var(--accent-primary);
+}
+
+.kpm-value {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 1.1em;
+  color: var(--accent-primary);
+}
+
+.kpm-label {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.kpm-trend {
+  font-size: 1em;
+  color: var(--text-secondary);
+}
+
+.kpm-trend.up {
+  color: #10b981;
+}
+
+.kpm-trend.down {
+  color: #f59e0b;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 50%;
+  transition: all 0.2s;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+
+.icon-btn:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+/* Discord Button Specifics */
+.discord-btn {
+  color: #5865F2; /* Discord brand color */
+  text-decoration: none;
+}
+
+.discord-btn:hover {
+  background-color: #5865F2;
+  color: white;
+  box-shadow: 0 0 10px rgba(88, 101, 242, 0.5);
+}
+
+/* Theme Dropdown */
+.theme-dropdown-container {
+  position: relative;
+}
+
+.theme-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 140px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.theme-dropdown::before {
+  content: '';
+  position: absolute;
+  top: -1.5rem; /* Extended safe zone to make it easier to move from icon to dropdown */
+  left: 0;
+  right: 0;
+  height: 1.5rem;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.theme-option:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.theme-option.active {
+  background-color: var(--accent-bg, rgba(59, 130, 246, 0.15));
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.theme-icon img {
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.theme-toggle img {
+  width: 24px;
+  height: 24px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.theme-option-row {
+  display: flex;
+  align-items: center;
+}
+
+.theme-option-row .theme-option {
+  flex: 1;
+  min-width: 0;
+}
+
+.theme-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.theme-remove:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.theme-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0.25rem 0;
+}
+
+/* Settings Dropdown */
+.settings-dropdown-container {
+  position: relative;
+}
+
+.settings-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 160px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.settings-dropdown::before {
+  content: '';
+  position: absolute;
+  top: -1.5rem; /* Extended safe zone to make it easier to move from icon to dropdown */
+  left: 0;
+  right: 0;
+  height: 1.5rem;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+  text-align: left;
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.settings-option:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.settings-option.active {
+  background-color: var(--accent-bg, rgba(59, 130, 246, 0.15));
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.settings-icon {
+  font-size: 1rem;
+}
+
+.settings-label {
+  font-weight: 500;
+}
+
+.title-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .title-desktop {
+    display: none;
+  }
+  
+  .title-mobile {
+    display: block;
+  }
+
+  .map-toggle-btn {
+    display: none;
+  }
+
+  .app-title {
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .app-header {
+    padding: 0.5rem 1rem;
+  }
+}
