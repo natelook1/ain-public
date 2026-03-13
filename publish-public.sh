@@ -28,6 +28,9 @@ sed -i 's/1376260930668855489/YOUR_DISCORD_GUILD_ID/g' \
 sed -i 's/Ore Ya Serious/YOUR_DISCORD_SERVER_NAME/g' \
   Backend/workflows/bots/alfred.json
 
+sed -i 's/192\.168\.30\.56:6333/YOUR_QDRANT_HOST:6333/g' \
+  Backend/workflows/bots/alfred.json
+
 # Commit the sanitized state
 git add -A
 git commit -m "chore: sanitized publish $(date '+%Y-%m-%d %H:%M')"
