@@ -2,6 +2,8 @@
 
 > Real-time EVE Online kill intelligence — live feed, 3D starmap, alliance tracking, and deep analytics powered by zKillboard and n8n.
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-looknet.ca-brightgreen?style=for-the-badge&logo=googlechrome&logoColor=white)](https://looknet.ca)
+
 ![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?logo=vite&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-0.163-black?logo=three.js&logoColor=white)
@@ -64,6 +66,21 @@ Built with Three.js, rendering 65,000+ EVE systems in real 3D coordinates.
 - Live EVE player count from ESI
 - ISK distribution chart across value brackets
 - Activity heatmap: today vs yesterday vs 30-day average
+
+### Alfred — Discord Intelligence Bot
+Alfred is a Discord bot wired directly into the AIN intelligence pipeline. Type a character name in your Discord server and Alfred returns a full tactical brief — rendered in Discord's ANSI color format.
+
+**Commands:**
+| Command | Response |
+|---------|----------|
+| Character name lookup | Full intel brief: threat level, combat record, ship preferences, recent kills, WH/capital flags |
+| Market query | Current market data pulled from ESI |
+| Route query | Optimal route with security status breakdown |
+| System query | Live system intel: recent activity, kills, resident corps |
+
+Alfred's reports are color-coded by threat level, ISK value, and security status — designed to be read instantly in the heat of a fight.
+
+---
 
 ### Theming
 10 built-in faction themes plus full custom theme support:
@@ -187,6 +204,16 @@ AIN/
 ├── publish-public.sh           # Sanitized publish to public repo
 └── vite.config.js
 ```
+
+### Scripts (`scripts/`)
+
+One-time data preparation utilities — run these when setting up from scratch, not during normal operation.
+
+| Script | Purpose |
+|--------|---------|
+| `populateSystemsData.cjs` | Builds `public/data/systems.json` from the EVE SDE — 65,000+ systems with 3D coordinates |
+| `process_map_data.cjs` | Processes raw SDE map exports into the format the starmap expects |
+| `reindex_attacker_ships.js` | Backfills ship type data across existing Redis kill records |
 
 ---
 
