@@ -2,7 +2,7 @@
 
 > Real-time EVE Online kill intelligence — live feed, 3D starmap, alliance tracking, and deep analytics powered by zKillboard and n8n.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-looknet.ca-brightgreen?style=for-the-badge&logo=googlechrome&logoColor=white)](https://looknet.ca)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-zkillmap.com-brightgreen?style=for-the-badge&logo=googlechrome&logoColor=white)](https://zkillmap.com)
 
 ![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?logo=vite&logoColor=white)
