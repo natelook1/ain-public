@@ -29,6 +29,7 @@ dist-ssr
 .env.*
 !.env.example
 Backend/SECRETS.md
+README-PRIVATE.md
 
 # Local editor / tool settings
 .claude/
