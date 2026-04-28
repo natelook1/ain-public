@@ -17,13 +17,20 @@ export async function fetchKillFeed(params = {}) {
     }
   })
 
+  queryParams.append('sse_client', 'true')
+
   const url = `${API_ENDPOINTS.FEED}?${queryParams.toString()}`
 
-  // Combine caller signal with a 10s timeout to prevent hung requests
-  const timeout = AbortSignal.timeout(10000);
-  const combinedSignal = signal
-    ? AbortSignal.any([signal, timeout])
-    : timeout;
+  // Combine caller signal with a 10s timeout to prevent hung requests.
+  // AbortSignal.timeout / AbortSignal.any require Chrome 103+/Firefox 102+/Safari 16.1+;
+  // fall back to a plain fetch (no timeout) on older browsers.
+  let combinedSignal;
+  try {
+    const timeout = AbortSignal.timeout(10000);
+    combinedSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  } catch {
+    combinedSignal = signal ?? undefined;
+  }
 
   const response = await fetch(url, { signal: combinedSignal })
 

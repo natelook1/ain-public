@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react'
 import { AllianceProvider, useAlliance } from './context/AllianceContext'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { MapModeProvider, useMapMode } from './context/MapModeContext'
@@ -9,11 +9,14 @@ import Sidebar from './components/Sidebar/Sidebar'
 import KillFeed from './components/Feed/KillFeed'
 import Heatmap from './components/Heatmap/Heatmap'
 import Filters from './components/Filters/Filters'
-import Starmap from './components/Starmap/Starmap'
 import CookieBanner from './components/CookieBanner/CookieBanner'
 import LegalModal from './components/Legal/LegalModal'
 import Footer from './components/Footer/Footer'
+import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary'
 import { fetchKillFeed } from './api/feed';
+import { API_ENDPOINTS } from './api/config';
+
+const Starmap = lazy(() => import('./components/Starmap/Starmap'));
 
 const getFingerprint = () => {
   if (typeof window === 'undefined') return 'unknown_pilot';
@@ -283,64 +286,73 @@ function AppContent() {
     }
   }, [buildFilterParams, loadMoreKills, activeViewFingerprint, fingerprint]);
 
-  // POLL SAFETY: Recursive timeout prevents request overlapping
-  const pollTimeoutRef = useRef(null);
-  
-  const pollNewKills = useCallback(async () => {
-    // Don't poll if we are busy loading history
-    if (loadingKillFeed || loadingMoreRef.current || !latestKnownIdRef.current) {
-      scheduleNextPoll();
-      return;
-    }
-
-    try {
-      const params = {
-        ...buildFilterParams(),
-        latest_known_id: latestKnownIdRef.current,
-        view: activeViewFingerprint,
-        fingerprint: fingerprint
-      };
-
-      const data = await fetchKillFeed(params);
-      
-      if (!data.error) {
-        const newKills = data.kills || [];
-        if (newKills.length > 0) {
-          latestKnownIdRef.current = String(newKills[0].killmail_id);
-          setKillFeedData(prev => deduplicateKills([...newKills, ...prev]).slice(0, 1000));
-        }
-      }
-    } catch (err) {
-      // Silent fail
-    } finally {
-      scheduleNextPoll();
-    }
-  }, [buildFilterParams, loadingKillFeed, activeViewFingerprint, fingerprint]);
-
-  const scheduleNextPoll = useCallback(() => {
-    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-    pollTimeoutRef.current = setTimeout(() => {
-      pollNewKills();
-    }, 5000);
-  }, [pollNewKills]);
-
   // Initial load
   useEffect(() => {
     fetchFilteredKillFeed();
   }, [fetchFilteredKillFeed]);
 
-  // Start polling
-  useEffect(() => {
-    scheduleNextPoll();
-    return () => {
-      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-    };
-  }, [scheduleNextPoll]);
+  // Keep a ref to the latest filter builder so the SSE effect can read
+  // current filters without needing to re-subscribe every time they change.
+  const buildFilterParamsRef = useRef(buildFilterParams);
+  useEffect(() => { buildFilterParamsRef.current = buildFilterParams; }, [buildFilterParams]);
 
-  // Cleanup
+  const activeViewFingerprintRef = useRef(activeViewFingerprint);
+  useEffect(() => { activeViewFingerprintRef.current = activeViewFingerprint; }, [activeViewFingerprint]);
+
+  // SSE — reconnects whenever filters or alliance selection changes
+  useEffect(() => {
+    const filterParams = buildFilterParamsRef.current();
+
+    // In lurker mode, drop alliance/corp scope from SSE so all kills stream in.
+    // The feed UI handles highlighting lurked kills client-side.
+    const sseParams = { ...filterParams };
+    if (sseParams.lurker === 'true') {
+      delete sseParams.alliance_id;
+      delete sseParams.corporation_id;
+    }
+
+    const qs = new URLSearchParams();
+    Object.entries(sseParams).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+    });
+    const url = `${API_ENDPOINTS.SSE}?${qs.toString()}`;
+
+    const sendPresence = () => {
+      const params = buildFilterParamsRef.current();
+      fetch(API_ENDPOINTS.SSE_PRESENCE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ view: activeViewFingerprintRef.current, query: params, fingerprint: getFingerprint() }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+
+    let es = new EventSource(url);
+
+    es.addEventListener('kill', (e) => {
+      try {
+        const kill = JSON.parse(e.data);
+        latestKnownIdRef.current = String(kill.killmail_id);
+        setKillFeedData(prev => deduplicateKills([kill, ...prev]).slice(0, 1000));
+      } catch {
+        // malformed event — ignore
+      }
+    });
+
+    es.onopen = () => sendPresence();
+    es.onerror = () => {};
+
+    const presenceInterval = setInterval(sendPresence, 60_000);
+
+    return () => {
+      es.close();
+      clearInterval(presenceInterval);
+    };
+  }, [activeAllianceIds, activeCorpIds, lurkerTarget, isLurkerMode, filters]);
+
+  // Cleanup fetch abort on unmount
   useEffect(() => {
     return () => {
-      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, []);
@@ -372,35 +384,41 @@ function AppContent() {
           />
           <div className="main-view-container">
             <div className={`starmap-wrapper ${mapMode ? 'visible' : 'hidden'}`}>
-              <Starmap 
-                killFeedData={starmapData} 
-                filters={filters} 
-                onMapViewChange={setMapViewMode}
-                fingerprint={fingerprint}
-                currentView={activeViewFingerprint} 
-              />
+              <ErrorBoundary fallback={<div className="map-error">Map failed to load. <button onClick={() => window.location.reload()}>Reload</button></div>}>
+                <Suspense fallback={<div className="map-loading">Loading map…</div>}>
+                  <Starmap
+                    killFeedData={starmapData}
+                    filters={filters}
+                    onMapViewChange={setMapViewMode}
+                    fingerprint={fingerprint}
+                    currentView={activeViewFingerprint}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             </div>
-            
-            <div 
+
+            <div
               className={`killfeed-wrapper ${!mapMode ? 'visible' : 'hidden'}`}
               ref={killfeedWrapperRef}
-              style={{ display: mapMode ? 'none' : 'block' }} 
+              style={{ display: mapMode ? 'none' : 'block' }}
             >
-              <KillFeed
-                filters={filters}
-                killFeedData={killFeedData}
-                loading={loadingKillFeed}
-                loadingMore={loadingMore}
-                hasMore={hasMore}
-                onLoadMore={() => loadMoreKills(false)}
-                scrollContainerRef={killfeedWrapperRef}
-                error={errorKillFeed}
-                showFilters={showFilters}
-                setShowFilters={setShowFilters}
-                onViewChange={setFeedViewMode}
-                fingerprint={fingerprint}
-                currentView={activeViewFingerprint}
-              />
+              <ErrorBoundary>
+                <KillFeed
+                  filters={filters}
+                  killFeedData={killFeedData}
+                  loading={loadingKillFeed}
+                  loadingMore={loadingMore}
+                  hasMore={hasMore}
+                  onLoadMore={() => loadMoreKills(false)}
+                  scrollContainerRef={killfeedWrapperRef}
+                  error={errorKillFeed}
+                  showFilters={showFilters}
+                  setShowFilters={setShowFilters}
+                  onViewChange={setFeedViewMode}
+                  fingerprint={fingerprint}
+                  currentView={activeViewFingerprint}
+                />
+              </ErrorBoundary>
             </div>
           </div>
         </main>
