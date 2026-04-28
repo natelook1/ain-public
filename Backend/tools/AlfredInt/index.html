@@ -403,6 +403,7 @@
                                   {user.activeViews.map(view => { const ms = getModeStyle(view); return <span key={view} className={`text-[8px] px-1 py-0.5 rounded font-black shrink-0 border ${ms.border} ${ms.bg} ${ms.color}`}>{ms.label}</span>; })}
                                   <span className={`text-[7px] px-1 py-0.5 rounded font-black shrink-0 border ${user.connection_type === 'sse' ? 'border-cyan-700 bg-cyan-950/40 text-cyan-400' : 'border-amber-800 bg-amber-950/30 text-amber-500'}`}>{user.connection_type === 'sse' ? 'PUSH' : 'POLL'}</span>
                                   {user.connection_type === 'sse' && fmtDuration(user.session_duration_sec) && <span className="text-[7px] text-slate-500 font-black">{fmtDuration(user.session_duration_sec)}</span>}
+                                  {user.session_count > 1 && <span className="text-[7px] px-1 py-0.5 rounded font-black shrink-0 border border-slate-700 bg-slate-900/60 text-slate-400">{user.session_count} TAB{user.session_count > 1 ? 'S' : ''}</span>}
                                   {user.geo?.country && <span className="text-[8px] text-slate-500 font-black">{user.geo.country}</span>}
                                 </div>
                               </div>
@@ -712,6 +713,9 @@
                                                     </span>
                                                     {user.connection_type === 'sse' && fmtDuration(user.session_duration_sec) && (
                                                         <span className="text-[7px] text-slate-500 font-black">{fmtDuration(user.session_duration_sec)}</span>
+                                                    )}
+                                                    {user.session_count > 1 && (
+                                                        <span className="text-[7px] px-1 py-0.5 rounded font-black shrink-0 border border-slate-700 bg-slate-900/60 text-slate-400">{user.session_count} TABS</span>
                                                     )}
                                                     </div>
                                                     <div className="text-[9px] text-slate-500 font-mono mb-1 tracking-tight">ID·{getPilotNumber(user.id)}</div>
