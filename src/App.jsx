@@ -102,6 +102,7 @@ function AppContent() {
   const lastFetchParamsRef = useRef('');
   const abortControllerRef = useRef(null);
   const loadingMoreRef = useRef(false);
+  const deployTokenRef = useRef(null);
 
   const killfeedWrapperRef = useRef(null);
 
@@ -258,9 +259,17 @@ function AppContent() {
         fingerprint: fingerprint 
       };
       const data = await fetchKillFeed(fetchParams);
-      
+
       if (signal.aborted) return;
       if (data.error) throw new Error(data.error);
+
+      if (data.deploy_token) {
+        if (deployTokenRef.current && deployTokenRef.current !== data.deploy_token) {
+          window.location.reload();
+          return;
+        }
+        deployTokenRef.current = data.deploy_token;
+      }
 
       const kills = deduplicateKills(data.kills || []);
       setKillFeedData(kills);
