@@ -1,0 +1,12 @@
+{
+  "name": "ain-sse-server",
+  "version": "1.0.0",
+  "description": "Local SSE push server for AIN kill feed",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

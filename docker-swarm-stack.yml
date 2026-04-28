@@ -1,0 +1,166 @@
+services:
+  # --- DATABASE: Production-grade storage for high concurrency ---
+  db:
+    image: postgres:16-alpine
+    container_name: n8n-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=n8n
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=n8n_secure_password
+    volumes:
+      - n8n_db_data:/var/lib/postgresql/data
+    networks:
+      - alfred_network
+
+  # --- MAIN: Handles UI, Webhooks, and Task Delegation ---
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n
+    restart: unless-stopped
+    entrypoint: sh -c "npm install --prefix /home/node ioredis papaparse axios ws && n8n"
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=n8n_secure_password
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - REDIS_HOST=redis
+      - N8N_ENCRYPTION_KEY=lCtpgT3B7jh+keKLwvzMQh4Yg41vw+Iv
+
+      # Domain and Proxy Alignment
+      - N8N_HOST=dev-ain.looknet.ca
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://api-ain.looknet.ca
+      - N8N_EDITOR_BASE_URL=https://dev-ain.looknet.ca
+      - N8N_PROXY_HOPS=1
+
+      # Memory and Performance
+      - NODE_OPTIONS=--max-old-space-size=2048
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+
+      # --- TASK RUNNER PERMISSIONS & PATHS ---
+      - N8N_BLOCK_JS_PYTHON_TASKS=false
+      - N8N_TASKS_LIB_ALLOWLIST=ioredis,papaparse,axios,ws
+      - N8N_TASKS_BUILTIN_ALLOWLIST=child_process,path,fs,https
+      - NODE_FUNCTION_ALLOW_BUILTIN=child_process,path,fs,https
+      - NODE_FUNCTION_ALLOW_EXTERNAL=ioredis,papaparse,axios,ws,child_process,path,fs
+      - NODE_PATH=/usr/local/lib/node_modules:/home/node/node_modules
+      - N8N_JS_EXTERNALS_PATH=/home/node/node_modules
+
+      - SSE_PUBLISH_SECRET=${SSE_PUBLISH_SECRET}
+
+      # Data Retention Pruning
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=48
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=5000
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./anoikis.csv:/data/anoikis_wormholes.csv:ro
+      - ./logs:/home/node/logs
+    depends_on:
+      - db
+      - redis
+    networks:
+      - alfred_network
+
+  # --- WORKER: Dedicated process for executing heavy tasks ---
+  n8n-worker:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n-worker
+    restart: unless-stopped
+    entrypoint: sh -c "npm install --prefix /home/node ioredis papaparse axios ws && n8n worker"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=n8n_secure_password
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - N8N_ENCRYPTION_KEY=lCtpgT3B7jh+keKLwvzMQh4Yg41vw+Iv
+
+      - SSE_PUBLISH_SECRET=${SSE_PUBLISH_SECRET}
+
+      # Task Runner Permissions & PATHS
+      - N8N_BLOCK_JS_PYTHON_TASKS=false
+      - N8N_TASKS_LIB_ALLOWLIST=ioredis,papaparse,axios,ws
+      - N8N_TASKS_BUILTIN_ALLOWLIST=child_process,path,fs,https
+      - NODE_FUNCTION_ALLOW_BUILTIN=child_process,path,fs,https
+      - NODE_FUNCTION_ALLOW_EXTERNAL=ioredis,papaparse,axios,ws,child_process,path,fs
+      - NODE_PATH=/usr/local/lib/node_modules:/home/node/node_modules
+      - N8N_JS_EXTERNALS_PATH=/home/node/node_modules
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - n8n
+      - redis
+    networks:
+      - alfred_network
+
+  # --- CACHING & QUEUING ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - alfred_network
+
+  # --- VECTOR DB ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - alfred_network
+
+  # --- EXTERNAL MONITORING ---
+  stats-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.stats
+    container_name: stats-api
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    restart: unless-stopped
+    networks:
+      - alfred_network
+
+  # --- SSE PUSH SERVER: Streams enriched kills to connected browser clients ---
+  sse-server:
+    build:
+      context: ./Backend/sse-server
+      dockerfile: Dockerfile
+    container_name: sse-server
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - SSE_PORT=3001
+      - PUBLISH_SECRET=${SSE_PUBLISH_SECRET}
+      - CORS_ORIGIN=https://ain.looknet.ca
+    networks:
+      - alfred_network
+
+volumes:
+  n8n_data:
+  n8n_db_data:
+  qdrant_data:
+  redis_data:
+
+networks:
+  alfred_network:
+    driver: bridge
