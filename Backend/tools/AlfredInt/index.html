@@ -196,7 +196,7 @@
             Object.keys(queryData).forEach((key) => {
               const val = queryData[key];
               const cleanKey = key.replace('filters_', '').replace('_id', '').toLowerCase();
-              if (!val || ['limit', 'before_kill', 'latest_known', 'view', 'fingerprint', 'ip', 'ip_address'].includes(cleanKey)) return;
+              if (!val || ['limit', 'before_kill', 'latest_known', 'view', 'fingerprint', 'ip', 'ip_address', 'sse_client', 'sse'].includes(cleanKey)) return;
 
               const searchKey = key.replace('filters_', '');
               const idNames = data?.id_names || {};
