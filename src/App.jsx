@@ -86,6 +86,8 @@ function AppContent() {
   
   // PERFORMANCE FIX: Separate state for Starmap prevents background updates when map is hidden
   const [starmapData, setStarmapData] = useState([]);
+  const [starmapEverActivated, setStarmapEverActivated] = useState(false);
+  useEffect(() => { if (mapMode) setStarmapEverActivated(true); }, [mapMode]);
 
   const [loadingKillFeed, setLoadingKillFeed] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -384,17 +386,19 @@ function AppContent() {
           />
           <div className="main-view-container">
             <div className={`starmap-wrapper ${mapMode ? 'visible' : 'hidden'}`}>
-              <ErrorBoundary fallback={<div className="map-error">Map failed to load. <button onClick={() => window.location.reload()}>Reload</button></div>}>
-                <Suspense fallback={<div className="map-loading">Loading map…</div>}>
-                  <Starmap
-                    killFeedData={starmapData}
-                    filters={filters}
-                    onMapViewChange={setMapViewMode}
-                    fingerprint={fingerprint}
-                    currentView={activeViewFingerprint}
-                  />
-                </Suspense>
-              </ErrorBoundary>
+              {starmapEverActivated && (
+                <ErrorBoundary fallback={<div className="map-error">Map failed to load. <button onClick={() => window.location.reload()}>Reload</button></div>}>
+                  <Suspense fallback={<div className="map-loading">Loading map…</div>}>
+                    <Starmap
+                      killFeedData={starmapData}
+                      filters={filters}
+                      onMapViewChange={setMapViewMode}
+                      fingerprint={fingerprint}
+                      currentView={activeViewFingerprint}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              )}
             </div>
 
             <div
