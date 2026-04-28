@@ -3708,12 +3708,13 @@ export default function Starmap({ killFeedData, filters, onMapViewChange, finger
         const renderScene = new RenderPass(scene, pCam); renderPassRef.current = renderScene;
         const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.1, 0.2, 0.1);
         
-        // --- HIGH QUALITY RENDER TARGET (HDR + MSAA) ---
-        // Reduced samples to 4 to improve compatibility and potentially fix GL errors
+        // HDR render target for bloom post-processing.
+        // No samples here — antialias is handled by the WebGLRenderer (antialias: true above).
+        // MSAA on a render target uses immutable GL storage that cannot be resized, causing
+        // GL_INVALID_OPERATION errors when the composer is resized.
         const renderTarget = new THREE.WebGLRenderTarget(width, height, {
             type: THREE.HalfFloatType,
             format: THREE.RGBAFormat,
-            samples: 4 
         });
         
         const composer = new EffectComposer(renderer, renderTarget); composerRef.current = composer;
@@ -3975,13 +3976,13 @@ export default function Starmap({ killFeedData, filters, onMapViewChange, finger
 
 
 
-        const clock = new THREE.Clock();
+        const animStartTime = performance.now();
         let frameCount = 0;
         const LABEL_UPDATE_INTERVAL = 6; // Update labels every 6 frames (~10Hz at 60fps)
         const dummy = new THREE.Object3D(); // Reusable object for matrix updates to reduce GC
 
         const animate = () => {
-            const time = clock.getElapsedTime();
+            const time = (performance.now() - animStartTime) / 1000;
             const now = Date.now();
             const controls = controlsRef.current;
             const activeCam = activeCameraRef.current;
@@ -5760,6 +5761,8 @@ export default function Starmap({ killFeedData, filters, onMapViewChange, finger
             window.removeEventListener('resize', handleResize);
             renderer.domElement.removeEventListener('wheel', handleWheel);
             if (containerRef.current && renderer.domElement) containerRef.current.removeChild(renderer.domElement);
+            composer.dispose();
+            renderTarget.dispose();
             renderer.dispose();
         };
     }, [initAttempt]);
