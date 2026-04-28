@@ -172,6 +172,32 @@ if ($r.ok -and $r.status -eq 200) {
 }
 
 # ---------------------------------------------------------------------------
+Section '/webhook/dashboard-intel  (AlfredInt monitoring dashboard)'
+
+$r = Invoke-Api "$ApiBase/dashboard-intel"
+if ($r.ok -and $r.status -eq 200) {
+    Write-Pass "GET /dashboard-intel 200 OK"
+    $j = From-Json $r.body
+    if ($j.overview)                          { Write-Pass "overview block present" }
+    else                                       { Write-Fail "overview block missing" }
+    if ($j.overview.PSObject.Properties.Name -contains 'active_pilots_now') {
+                                               Write-Pass "active_pilots_now=$($j.overview.active_pilots_now)" }
+    else                                       { Write-Fail "active_pilots_now missing" }
+    if ($null -ne $j.top_users)               { Write-Pass "top_users present ($(@($j.top_users).Count) entries)" }
+    else                                       { Write-Fail "top_users missing" }
+    if ($null -ne $j.timeline)                { Write-Pass "timeline present ($(@($j.timeline).Count) buckets)" }
+    else                                       { Write-Fail "timeline missing" }
+    # Verify connection_type field is present on at least one top user (SSE badge support)
+    $firstUser = @($j.top_users)[0]
+    if ($firstUser -and $firstUser.PSObject.Properties.Name -contains 'connection_type') {
+                                               Write-Pass "connection_type field present on top user" }
+    else                                       { Write-Info "connection_type field missing (no active users or workflow not updated)" }
+} else {
+    Write-Fail "GET /dashboard-intel returned $($r.status)"
+    Write-Info $r.body.Substring(0, [Math]::Min(200, $r.body.Length))
+}
+
+# ---------------------------------------------------------------------------
 Section '/webhook/sse-presence  (SSE monitoring presence ping)'
 
 $presenceBody = '{"view":"compact","query":{"filters_space":"nullsec"},"fingerprint":"pilot_testbackend"}'

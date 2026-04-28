@@ -116,25 +116,26 @@ Custom themes accept any alliance or corporation logo and a configurable color p
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         Cloudflare Tunnel           │
-│   looknet.ca  /  api-ain.looknet.ca │
-└────────────┬────────────────────────┘
-             │
-    ┌────────▼────────┐
-    │   React / Vite  │        Frontend
-    │   src/          │        served via Cloudflare
-    └────────┬────────┘
-             │  REST (webhooks)
-    ┌────────▼────────┐
-    │      n8n        │        Workflow engine
-    │  api-ain.looknet│        (Docker, Proxmox)
-    └────────┬────────┘
-             │
-    ┌────────▼────────┐
-    │     Redis       │        Hot cache & kill index
-    │  (Docker LAN)   │        Sorted Sets, Hashes
-    └─────────────────┘
+┌──────────────────────────────────────────────┐
+│              Cloudflare / Traefik            │
+│  zkillmap.com · api-ain · sse-ain.looknet.ca │
+└────────────┬──────────────────┬──────────────┘
+             │                  │
+    ┌────────▼────────┐  ┌──────▼──────────┐
+    │   React / Vite  │  │   SSE Server    │   Frontend
+    │   src/          │  │   Node.js       │   served via Cloudflare
+    └────────┬────────┘  └──────┬──────────┘   Pages
+             │  REST            │ EventSource
+             │  (webhooks)      │ (push)
+    ┌────────▼──────────────────▼────────────┐
+    │                  n8n                   │   Workflow engine
+    │          api-ain.looknet.ca            │   (Docker, Proxmox)
+    └────────────────────┬───────────────────┘
+                         │
+    ┌────────────────────▼───────────────────┐
+    │                 Redis                  │   Hot cache & kill index
+    │              (Docker LAN)              │   Sorted Sets, Hashes
+    └────────────────────────────────────────┘
              ▲
              │  feed
     ┌────────┴────────┐
@@ -142,6 +143,15 @@ Custom themes accept any alliance or corporation logo and a configurable color p
     │   (external)    │
     └─────────────────┘
 ```
+
+### Real-Time Push Architecture
+
+New kills flow from n8n → SSE server → all connected browsers via `EventSource` — no polling required. The SSE server runs as a persistent Node.js process behind Traefik with `X-Accel-Buffering: no` to prevent proxy buffering.
+
+- **n8n** POSTs each enriched kill to `http://sse-server:3001/publish` after indexing
+- **SSE server** fans the kill out to all matching client connections (filter-aware)
+- **Browser** receives the kill and prepends it to the feed without a page reload
+- **Presence ping** — clients POST to `/sse-presence` on connect and every 60s to stay visible in the monitoring dashboard
 
 ### Frontend (`src/`)
 
@@ -164,11 +174,18 @@ Custom themes accept any alliance or corporation logo and a configurable color p
 | Category | Workflows | Purpose |
 |----------|-----------|---------|
 | `polling/` | r2z2_poll *(active)*, redisq_poll *(standby fallback)* | Pull live killmails from zKillboard via R2Z2; RedisQ kept inactive as backup |
-| `webhooks/` | feed, intel, stats, search, cache, system | Serve frontend API requests from Redis |
-| `indexing/` | killmail_index, archive_index (×3), daily_index | Index kills across 20+ dimensions in Redis |
+| `webhooks/` | feed, intel, stats, search, cache, system, sse-presence | Serve frontend API requests from Redis; log SSE client presence |
+| `indexing/` | killmail_index, archive_index (×3), daily_index | Index kills across 20+ dimensions in Redis; publish enriched kill to SSE server |
 | `maintenance/` | db_heal, redis_tool, geo_worker | Data integrity, cache ops, geolocation |
 | `monitoring/` | r2z2_monitor_backend | Feed health and KPM computation |
 | `bots/` | alfred + Alfred sub-workflows | Discord bot: character/market/route/system lookups |
+
+### SSE Server (`Backend/sse-server/`)
+
+| File | Purpose |
+|------|---------|
+| `server.js` | Node.js SSE server — `/sse` stream, `/publish` ingest, `/health` check |
+| `package.json` | Dependencies (`express`, `ioredis`) |
 
 The three `archive_index` workflows run in parallel as separate workers, each handling a partition of the historical backfill — same code, different range variables.
 
@@ -269,18 +286,29 @@ All frontend API endpoints are defined in one place:
 
 ```js
 // src/api/config.js
-const API_BASE_URL = 'https://api-ain.looknet.ca/webhook'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api-ain.looknet.ca/webhook'
+const SSE_BASE_URL = import.meta.env.VITE_SSE_BASE     || 'http://localhost:3001'
 
 export const API_ENDPOINTS = {
-  FEED:        `${API_BASE_URL}/feed`,
-  STATS:       `${API_BASE_URL}/stats`,
-  SEARCH:      `${API_BASE_URL}/search`,
-  R2Z2_STATS:  `${API_BASE_URL}/r2z2-stats`,
-  SYSTEM_INTEL:`${API_BASE_URL}/system`
+  FEED:         `${API_BASE_URL}/feed`,
+  STATS:        `${API_BASE_URL}/stats`,
+  SEARCH:       `${API_BASE_URL}/search`,
+  R2Z2_STATS:   `${API_BASE_URL}/r2z2-stats`,
+  SYSTEM_INTEL: `${API_BASE_URL}/system`,
+  SSE:          `${SSE_BASE_URL}/sse`,
+  SSE_PRESENCE: `${API_BASE_URL}/sse-presence`
 }
 ```
 
-Change `API_BASE_URL` to point at your own n8n instance.
+Set `VITE_API_BASE_URL` and `VITE_SSE_BASE` in your `.env` (or Cloudflare Pages environment variables) to point at your own instances.
+
+### SSE Server Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SSE_PORT` | `3001` | Port the SSE server listens on |
+| `PUBLISH_SECRET` | — | Shared secret between n8n and the SSE server |
+| `CORS_ORIGIN` | `*` | Restrict to your frontend origin in production |
 
 ---
 
