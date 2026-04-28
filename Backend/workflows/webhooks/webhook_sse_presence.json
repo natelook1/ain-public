@@ -1,0 +1,86 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "path": "sse-presence",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "SSE Presence Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "sse-presence"
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nconst redis = new Redis({ host: 'redis', port: 6379, db: 0 });\n\ntry {\n    const body = $input.first().json.body || $input.first().json;\n    const headers = $input.first().json.headers || {};\n\n    const ip = headers['x-forwarded-for']?.split(',')[0]?.trim()\n        || headers['x-real-ip']\n        || 'unknown';\n\n    const fp = headers['x-fingerprint']\n        || body.fingerprint\n        || ('sse_' + ip.replace(/[^a-z0-9]/gi, '_'));\n\n    const view = body.view || 'standard';\n    const query = body.query || {};\n\n    // Derive intent label matching the feed workflow logic\n    const v = String(view).toLowerCase();\n    let intent = 'SSE Feed';\n    if (v === 'map_3d')   intent = 'Tactical 3D';\n    else if (v === 'map_2d')   intent = 'Tactical 2D';\n    else if (v === 'map_flat') intent = 'Flat Map';\n    else if (v === 'mosaic')   intent = 'Mosaic Grid';\n    else if (v === 'compact')  intent = 'Compact Feed';\n    else if (v === 'standard') intent = 'SSE Feed';\n    if (query.w_space) intent = 'W-Space Hunter';\n\n    // Geo lookup from cache (populated by existing geo worker)\n    let geo = null;\n    if (ip && ip !== 'unknown') {\n        const cached = await redis.get('intel:geo:' + ip);\n        if (cached && cached !== 'null') {\n            try { geo = JSON.parse(cached); } catch(e) {}\n        }\n    }\n\n    const logEntry = JSON.stringify({\n        id: fp,\n        ip,\n        geo,\n        ua: headers['user-agent'] || null,\n        ts: Math.floor(Date.now() / 1000),\n        intent,\n        view,\n        query,\n        sse: true,\n        perf: { ms: 0, scanned: 0, returned: 0 }\n    });\n\n    const pipe = redis.pipeline();\n    pipe.lpush('intel:logs:connections', logEntry);\n    pipe.ltrim('intel:logs:connections', 0, 49999);\n\n    // Keep the pilot marked active (same 15-min TTL as feed workflow)\n    pipe.zadd('intel:active:pilots', Math.floor(Date.now() / 1000), fp);\n\n    // Track session start time (only set on first ping — NX prevents overwrite on reconnect)\n    pipe.set('intel:session:start:' + fp, Math.floor(Date.now() / 1000), 'EX', 86400, 'NX');\n\n    // Increment SSE-specific view counter\n    pipe.hincrby('intel:usage:stats', 'sse_' + v, 1);\n\n    await pipe.exec();\n\n    return [{ json: { ok: true } }];\n} catch (e) {\n    return [{ json: { ok: false, error: e.message } }];\n} finally {\n    redis.quit();\n}"
+      },
+      "id": "a1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Log SSE Presence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Presence Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "SSE Presence Webhook": {
+      "main": [
+        [
+          {
+            "node": "Log SSE Presence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log SSE Presence": {
+      "main": [
+        [
+          {
+            "node": "Presence Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+  }
+}

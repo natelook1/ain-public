@@ -10,54 +10,41 @@
           ]
         }
       },
+      "id": "279e5df1-0e1f-4db5-99c1-9e2a1fb94102",
+      "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        64,
-        -336
-      ],
-      "id": "5fadb928-70d2-414a-9462-e88e64fa2a61",
-      "name": "Schedule Trigger"
+        80,
+        -448
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Node: \"Queue for Deduplication (Optimized)\"\n// Checks if kill exists in Redis BEFORE queuing to save worker CPU.\n\nconst Redis = require('ioredis');\nlet redis;\n\n// 1. Configuration\nconst QUEUE_KEY = 'intel:queue:archive'; \nconst PROCESSED_HASH_KEY = 'intel:kill:data'; // Where you store processed kills\n\nconst items = $input.all();\nconst killsToCheck = []; \n\n// 2. Extract all IDs from the zKill History Files\nfor (const item of items) {\n    const historyData = item.json; \n    \n    if (typeof historyData !== 'object' || historyData === null || Array.isArray(historyData)) continue;\n\n    const killIds = Object.keys(historyData);\n    for (const killId of killIds) {\n        const hash = historyData[killId];\n        const numericKillId = parseInt(killId, 10);\n        \n        if (numericKillId && hash) {\n            killsToCheck.push({\n                kill_id: numericKillId,\n                hash: hash\n            });\n        }\n    }\n}\n\nif (killsToCheck.length === 0) {\n    console.log('[Archive] No kills found in history file.');\n    return [{ json: { status: 'empty' } }];\n}\n\nconsole.log(`[Archive] Checking ${killsToCheck.length} kills against database...`);\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n    \n    // 3. Pipeline Check (Super Fast)\n    const checkPipeline = redis.pipeline();\n    killsToCheck.forEach(k => checkPipeline.hexists(PROCESSED_HASH_KEY, String(k.kill_id)));\n    const results = await checkPipeline.exec();\n\n    // 4. Filter - Keep only MISSING kills\n    const killsToQueue = [];\n    let alreadyExistsCount = 0;\n\n    results.forEach((res, index) => {\n        // res[1] === 1 means it exists. We want it if it is 0.\n        if (res[1] === 0) {\n            killsToQueue.push(killsToCheck[index]);\n        } else {\n            alreadyExistsCount++;\n        }\n    });\n\n    console.log(`[Archive] Filtered Results: ${alreadyExistsCount} exist, ${killsToQueue.length} are new and will be queued.`);\n\n    if (killsToQueue.length > 0) {\n        const queuePipeline = redis.pipeline();\n        for (const kill of killsToQueue) {\n            queuePipeline.rpush(QUEUE_KEY, JSON.stringify(kill));\n        }\n        await queuePipeline.exec();\n    }\n    \n    return [{ json: { new_kills_queued: killsToQueue.length, total_checked: killsToCheck.length } }];\n\n} catch (e) {\n    console.error('ERROR in Archive Checker:', e.message);\n    // In case of error, forward original items to allow processing anyway\n    return items;\n} finally {\n    if (redis) {\n        redis.quit();\n    }\n}"
+        "jsCode": "// Shift to 2, 3, and 4 days ago. Direct R2 access is much faster.\nconst datesToCheck = [];\nconst today = new Date(); \nfor (let i = 2; i <= 4; i++) {\n    const date = new Date(today);\n    date.setUTCDate(date.getUTCDate() - i);\n    const year = date.getUTCFullYear();\n    const month = String(date.getUTCMonth() + 1).padStart(2, '0');\n    const day = String(date.getUTCDate()).padStart(2, '0');\n    datesToCheck.push({\n        json: {\n            dateString: `${year}${month}${day}`,\n            friendlyDate: date.toISOString().split('T')[0]\n        }\n    });\n}\nreturn datesToCheck;"
       },
+      "id": "64a28eeb-6296-42e6-9327-aa7d82c648b9",
+      "name": "Get History Window (Days 2-4)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        672,
-        -336
-      ],
-      "id": "d1b72f69-40de-48f0-ba44-6c0638b7ae90",
-      "name": "Queue for Deduplication"
+        272,
+        -448
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Node: \"Comprehensive Prune & Heal\"\n// Phase 1: Deletes killmails older than 30 days from ALL associated data structures.\n// Phase 2: Scans for and removes any orphaned data missing from the primary index.\n\nconst Redis = require('ioredis');\n\n// --- Configuration ---\nconst DAYS_TO_KEEP = 30;\nconst BATCH_SIZE = 500; // Process 500 items at a time.\nconst REDIS_CONFIG = { host: 'redis', port: 6379, db: 0, connectTimeout: 5000, maxRetriesPerRequest: 3 };\n\n// --- Helper for Comprehensive Deletion ---\nconst comprehensivelyDelete = (killmails, pipeline, report, type) => {\n    if (!Array.isArray(killmails) || killmails.length === 0) {\n        return;\n    }\n\n    const idsToDelete = killmails.map(km => String(km.killmail_id));\n\n    // 1. Queue deletion from the main data hash and primary time index\n    pipeline.hdel('intel:kill:data', ...idsToDelete);\n    pipeline.zrem('intel:kills:all', ...idsToDelete);\n    pipeline.zrem('intel:kills:24h_stats', ...idsToDelete);\n    report.summary.data_hashes_deleted += idsToDelete.length;\n    report.summary.index_entries_removed += idsToDelete.length * 2;\n\n    // 2. For each kill, queue deletion from all its specific indexes\n    for (const km of killmails) {\n        const killIdStr = String(km.killmail_id);\n\n        if (type === 'age') {\n            report.summary.pruned_by_age++;\n        } else if (type === 'orphan') {\n            report.summary.healed_orphans++;\n        }\n\n        // Classes\n        if (km.victim_ship_class) pipeline.zrem(`intel:losses:ship_class:${km.victim_ship_class}`, killIdStr);\n        if (km.victim_ship_class_detailed) pipeline.zrem(`intel:losses:ship_class_detailed:${km.victim_ship_class_detailed}`, killIdStr);\n        \n        // ISK Value\n        let valKey = 'sub10m';\n        if (km.total_value >= 50e9) valKey = '50b';\n        else if (km.total_value >= 20e9) valKey = '20b-50b';\n        else if (km.total_value >= 10e9) valKey = '10b-20b';\n        else if (km.total_value >= 1e9) valKey = '1b-10b';\n        else if (km.total_value >= 100e6) valKey = '100m-1b';\n        else if (km.total_value >= 10e6) valKey = '10m-100m';\n        pipeline.zrem(`intel:kills:isk:${valKey}`, killIdStr);\n\n        // Geo\n        if (km.space_type) pipeline.zrem(`intel:kills:space:${km.space_type}`, killIdStr);\n        if (km.solar_system_id) pipeline.zrem(`intel:kills:system:${km.solar_system_id}`, killIdStr);\n        if (km.region_id) pipeline.zrem(`intel:kills:region:${km.region_id}`, killIdStr);\n        if (km.constellation_id) pipeline.zrem(`intel:kills:constellation:${km.constellation_id}`, killIdStr);\n\n        // Time & Fleet\n        if (km.kill_hour !== undefined) pipeline.zrem(`intel:kills:hour:${km.kill_hour}`, killIdStr);\n        if (km.kill_day !== undefined) pipeline.zrem(`intel:kills:day:${km.kill_day}`, killIdStr);\n        if (km.fleet_size) pipeline.zrem(`intel:kills:fleet:${km.fleet_size}`, killIdStr);\n\n        // Alliances, Corps, Chars\n        const involvedEntities = new Set();\n        if (km.victim) {\n            if (km.victim.alliance_id) involvedEntities.add({ type: 'alliance', id: km.victim.alliance_id });\n            if (km.victim.corporation_id) involvedEntities.add({ type: 'corporation', id: km.victim.corporation_id });\n            if (km.victim.character_id && !km.victim.is_npc) involvedEntities.add({ type: 'character', id: km.victim.character_id });\n            if (km.victim.ship_type_id) pipeline.zrem(`intel:losses:ship:${km.victim.ship_type_id}`, killIdStr);\n        }\n        (km.attackers || []).forEach(a => {\n            if (a.alliance_id) involvedEntities.add({ type: 'alliance', id: a.alliance_id });\n            if (a.character_id && !a.is_npc) involvedEntities.add({ type: 'character', id: a.character_id });\n            if (a.ship_class) pipeline.zrem(intel:kills:ship_class:\\, killIdStr);\n            if (a.ship_class_detailed) pipeline.zrem(intel:kills:ship_class_detailed:\\, killIdStr);\n        });\n\n        for (const entity of involvedEntities) {\n            if(entity.type === 'alliance') {\n                pipeline.zrem(`intel:followed:alliance:${entity.id}`, killIdStr);\n                pipeline.zrem(`intel:losses:alliance:${entity.id}`, killIdStr);\n                pipeline.zrem(`intel:kills:alliance:${entity.id}`, killIdStr);\n                pipeline.zrem(`intel:stats:alliance:kills_by_value:${entity.id}`, killIdStr);\n                pipeline.zrem(`intel:stats:alliance:losses_by_value:${entity.id}`, killIdStr);\n            }\n            if (entity.type === 'character') {\n                pipeline.zrem(`intel:losses:character:${entity.id}`, killIdStr);\n                pipeline.zrem(`intel:kills:character:${entity.id}`, killIdStr);\n            }\n            if (entity.type === 'corporation') {\n                pipeline.zrem(`intel:losses:corporation:${entity.id}`, killIdStr);\n            }\n        }\n    }\n};\n\n// --- Main Execution Logic ---\nconst redis = new Redis(REDIS_CONFIG);\nconst report = {\n    status: 'started',\n    summary: {\n        killmails_to_prune: 0,\n        pruned_by_age: 0,\n        healed_orphans: 0,\n        data_hashes_deleted: 0,\n        index_entries_removed: 0,\n    },\n    errors: [],\n};\ntry {\n    console.log(\"--- Starting Comprehensive Prune & Heal Script ---\");\n    await redis.ping();\n\n    // --- PHASE 1: Pruning by Age ---\n    console.log(\"--- Phase 1: Pruning by Age (older than 30 days) ---\");\n    const cutoffScore = Math.floor((Date.now() - (DAYS_TO_KEEP * 24 * 60 * 60 * 1000)) / 1000);\n    const idsToPrune = await redis.zrangebyscore('intel:kills:all', 0, cutoffScore);\n    report.summary.killmails_to_prune = idsToPrune.length;\n\n    if (idsToPrune.length > 0) {\n        console.log(`[Prune] Found ${idsToPrune.length} killmails to prune by age. Processing in batches of ${BATCH_SIZE}...`);\n        for (let i = 0; i < idsToPrune.length; i += BATCH_SIZE) {\n            const batchIds = idsToPrune.slice(i, i + BATCH_SIZE);\n            const batchDataJson = await redis.hmget('intel:kill:data', ...batchIds);\n            const killmailsInBatch = batchDataJson.map(json => json ? JSON.parse(json) : null).filter(Boolean);\n            \n            const deletionPipeline = redis.pipeline();\n            comprehensivelyDelete(killmailsInBatch, deletionPipeline, report, 'age');\n            await deletionPipeline.exec();\n\n            console.log(`[Prune] Batch ${Math.floor(i / BATCH_SIZE) + 1} complete. Pruned ${killmailsInBatch.length} old killmails.`);\n        }\n    } else {\n        console.log(\"[Prune] No killmails older than 30 days found to prune.\");\n    }\n    console.log(\"--- Phase 1 Complete ---\");\n\n    // --- PHASE 2: Healing Orphaned Data ---\n    console.log(\"--- Phase 2: Healing Orphaned Data (verifying all remaining hashes) ---\");\n    let orphanCursor = '0';\n    let totalScanned = 0;\n    do {\n        const [nextCursor, keys] = await redis.hscan('intel:kill:data', orphanCursor, 'COUNT', BATCH_SIZE);\n        orphanCursor = nextCursor;\n        const batchIds = keys.filter((_, i) => i % 2 === 0);\n        totalScanned += batchIds.length;\n\n        if (batchIds.length > 0) {\n            const scores = await redis.zmscore('intel:kills:all', ...batchIds);\n            const orphanIds = batchIds.filter((id, index) => scores[index] === null);\n\n            if (orphanIds.length > 0) {\n                console.log(`[Heal] Found ${orphanIds.length} orphans in this batch. Removing...`);\n                const orphanDataJson = await redis.hmget('intel:kill:data', ...orphanIds);\n                const orphanKillmails = orphanDataJson.map(json => json ? JSON.parse(json) : null).filter(Boolean);\n                \n                const healPipeline = redis.pipeline();\n                comprehensivelyDelete(orphanKillmails, healPipeline, report, 'orphan');\n                await healPipeline.exec();\n            }\n        }\n        if(totalScanned > 0) console.log(`[Heal] Scanned ${totalScanned} total hashes for orphans...`);\n    } while (orphanCursor !== '0');\n    console.log(\"--- Phase 2 Complete ---\");\n\n    report.status = 'success';\n    console.log(\"✅ Comprehensive Pruning & Healing complete.\");\n\n} catch (e) {\n    report.status = 'error';\n    report.errors.push({ message: e.message, stack: e.stack });\n    console.error(\"❌ CRITICAL ERROR during prune/heal process:\", e);\n} finally {\n    if (redis) await redis.quit();\n}\n\nreturn [{ json: report }];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        880,
-        -336
-      ],
-      "id": "85bf1760-d774-4d74-9872-3d70bebf0532",
-      "name": "Prune Database"
-    },
-    {
-      "parameters": {
-        "url": "={{ \"https://zkillboard.com/api/history/\" + $json.dateString + \".json\" }}",
+        "url": "={{ \"https://r2z2.zkillboard.com/history/\" + $json.dateString + \".json\" }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "User-Agent",
-              "value": "Alfred-Intel-Bot (maintainer@example.com)"
+              "value": "Alfred-Intel-Bot (maintainer@looknet.ca)"
             },
             {
-              "name": "Accept-Encoding",
-              "value": "gzip"
+              "name": "Accept",
+              "value": "application/json"
             }
           ]
         },
@@ -70,27 +57,40 @@
           }
         }
       },
+      "id": "9c0c3a33-9b45-411d-8ff7-1881fd69ec60",
+      "name": "Fetch History JSON (Direct R2)",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
+      "typeVersion": 4.2,
       "position": [
-        464,
-        -336
-      ],
-      "id": "09d1e00f-7398-46ff-b409-f845ccce797b",
-      "name": "HTTP Request"
+        480,
+        -448
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Node: \"1. Get Last 3 Days (Fixed)\"\n// Outputs 3 valid date strings for zKillboard history files.\n\nconst datesToCheck = [];\nconst today = new Date(); \n\n// Loop for 1 day ago, 2 days ago, and 3 days ago\nfor (let i = 1; i <= 3; i++) {\n    const date = new Date(today);\n    date.setUTCDate(date.getUTCDate() - i); // Go back i days\n\n    const year = date.getUTCFullYear();\n    const month = String(date.getUTCMonth() + 1).padStart(2, '0');\n    const day = String(date.getUTCDate()).padStart(2, '0');\n    \n    // Format: YYYYMMDD\n    const dateString = `${year}${month}${day}`;\n    \n    datesToCheck.push({\n        json: {\n            dateString: dateString,\n            friendlyDate: date.toISOString().split('T')[0]\n        }\n    });\n}\n\nreturn datesToCheck;"
+        "jsCode": "const Redis = require('ioredis');\nlet redis;\nconst QUEUE_KEY = 'intel:queue:archive'; \nconst PROCESSED_HASH_KEY = 'intel:kill:data';\n\nconst items = $input.all();\nconst killsToCheck = []; \n\nfor (const item of items) {\n    const data = item.json;\n    \n    // Guard against any leftover HTML or error objects\n    if (data.data && typeof data.data === 'string' && data.data.includes('<html>')) {\n        continue;\n    }\n\n    // Handle zKill ID:Hash objects from the R2 bucket\n    for (const [killId, hash] of Object.entries(data)) {\n        const numericKillId = parseInt(killId, 10);\n        if (numericKillId && typeof hash === 'string') {\n            killsToCheck.push({ kill_id: numericKillId, hash: hash });\n        }\n    }\n}\n\nif (killsToCheck.length === 0) {\n    return [{ json: { status: 'empty', reason: 'No valid data found in R2 bucket for these dates.' } }];\n}\n\ntry {\n    redis = new Redis({ host: 'redis', port: 6379, db: 0, connectTimeout: 5000 });\n    const checkPipeline = redis.pipeline();\n    killsToCheck.forEach(k => checkPipeline.hexists(PROCESSED_HASH_KEY, String(k.kill_id)));\n    const results = await checkPipeline.exec();\n\n    const killsToQueue = [];\n    results.forEach((res, index) => {\n        if (res[1] === 0) killsToQueue.push(killsToCheck[index]);\n    });\n\n    if (killsToQueue.length > 0) {\n        const queuePipeline = redis.pipeline();\n        for (const kill of killsToQueue) {\n            queuePipeline.rpush(QUEUE_KEY, JSON.stringify(kill));\n        }\n        await queuePipeline.exec();\n    }\n    \n    return [{ json: { new_kills_queued: killsToQueue.length, total_checked: killsToCheck.length } }];\n} finally {\n    if (redis) await redis.quit();\n}"
       },
+      "id": "b9e17104-aaaa-4eac-83e4-e8a69b9bfc5e",
+      "name": "Deduplicate & Queue",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        256,
-        -336
-      ],
-      "id": "6ad4860d-ae45-41f6-98fd-9dfd9761ec6c",
-      "name": "Get Last 3 Days"
+        688,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\nconst DAYS_TO_KEEP = 30;\nconst TTL_SECONDS = 31 * 24 * 60 * 60;\nconst BATCH_SIZE = 500;\nconst REDIS_CONFIG = { host: 'redis', port: 6379, db: 0, connectTimeout: 5000 };\n\nconst comprehensivelyDelete = (killmails, pipeline, report, type) => {\n    if (!Array.isArray(killmails) || killmails.length === 0) return;\n    const idsToDelete = killmails.map(km => String(km.killmail_id));\n    pipeline.hdel('intel:kill:data', ...idsToDelete);\n    pipeline.zrem('intel:kills:all', ...idsToDelete);\n    pipeline.zrem('intel:kills:24h_stats', ...idsToDelete);\n    \n    const removeAndExpire = (key, id) => {\n        pipeline.zrem(key, id);\n        pipeline.expire(key, TTL_SECONDS);\n    };\n\n    for (const km of killmails) {\n        const killIdStr = String(km.killmail_id);\n        if (type === 'age') report.summary.pruned_by_age++;\n        if (km.space_type) removeAndExpire(`intel:kills:space:${km.space_type}`, killIdStr);\n        if (km.solar_system_id) removeAndExpire(`intel:kills:system:${km.solar_system_id}`, killIdStr);\n    }\n};\n\nconst redis = new Redis(REDIS_CONFIG);\nconst report = { status: 'started', summary: { pruned_by_age: 0, seen_killmails_cleared: false } };\n\ntry {\n    const cutoffScore = Math.floor((Date.now() - (DAYS_TO_KEEP * 24 * 60 * 60 * 1000)) / 1000);\n    const idsToPrune = await redis.zrangebyscore('intel:kills:all', 0, cutoffScore);\n    \n    if (idsToPrune.length > 0) {\n        for (let i = 0; i < idsToPrune.length; i += BATCH_SIZE) {\n            const batchIds = idsToPrune.slice(i, i + BATCH_SIZE);\n            const batchDataJson = await redis.hmget('intel:kill:data', ...batchIds);\n            const killmailsInBatch = batchDataJson.map(json => json ? JSON.parse(json) : null).filter(Boolean);\n            const delPipe = redis.pipeline();\n            comprehensivelyDelete(killmailsInBatch, delPipe, report, 'age');\n            await delPipe.exec();\n        }\n    }\n\n    await redis.del('r2z2:seen_killmails');\n    report.summary.seen_killmails_cleared = true;\n    report.status = 'success';\n} catch (e) {\n    report.status = 'error';\n    report.error = e.message;\n} finally {\n    await redis.quit();\n}\n\nreturn [{ json: report }];"
+      },
+      "id": "bc3fe965-6c1a-466d-bcd5-ebe885fc93e1",
+      "name": "Prune Database",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -448
+      ]
     }
   ],
   "connections": {
@@ -98,34 +98,40 @@
       "main": [
         [
           {
-            "node": "Get Last 3 Days",
+            "node": "Get History Window (Days 2-4)",
             "type": "main",
             "index": 0
-          },
+          }
+        ]
+      ]
+    },
+    "Get History Window (Days 2-4)": {
+      "main": [
+        [
+          {
+            "node": "Fetch History JSON (Direct R2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch History JSON (Direct R2)": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate & Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate & Queue": {
+      "main": [
+        [
           {
             "node": "Prune Database",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request": {
-      "main": [
-        [
-          {
-            "node": "Queue for Deduplication",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Last 3 Days": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
@@ -135,6 +141,6 @@
   },
   "pinData": {},
   "meta": {
-    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+    "instanceId": "e4d9df6741c067cf2124440aba5e944d3dc90724d747ff5a42a4808aaa978722"
   }
 }
