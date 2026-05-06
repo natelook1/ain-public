@@ -300,15 +300,84 @@ if ($r.Code -eq 404) {
     } catch {}
 }
 
-# --- 8. Latency Regression (all endpoints) ------------------------------------
+# --- 8. Cloudflare Tunnel Monitor --------------------------------------------
+Write-Host "`n--- Webhook - Cloudflare Tunnel Status ---" -ForegroundColor Yellow
+
+$t     = [Diagnostics.Stopwatch]::StartNew()
+$r     = Invoke-AIN -Path "/cloudflare-tunnel-status"
+$t.Stop()
+$latMs = $t.ElapsedMilliseconds
+Test-Code "GET /cloudflare-tunnel-status -> 200" $r @(200)
+if ($r.Ok) {
+    Test-JsonKey "tunnel-status has summary + tunnels + nodes + threat fields" $r @("summary", "tunnels", "nodes", "threat_log", "waf_candidates", "threat_history")
+    try {
+        $d      = $r.Body | ConvertFrom-Json
+        $latCol = if ($latMs -lt 300) { "Green" } elseif ($latMs -lt 1000) { "Yellow" } else { "Red" }
+        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
+        Write-Host "${latMs}ms (cached)" -ForegroundColor $latCol
+        if ($d.summary) {
+            Write-Host "  tunnels          : $($d.summary.total_tunnels) ($($d.summary.healthy) healthy)" -ForegroundColor DarkGray
+            Write-Host "  connectors       : $($d.summary.total_connectors)" -ForegroundColor DarkGray
+            Write-Host "  total requests   : $($d.summary.total_requests)" -ForegroundColor DarkGray
+            Write-Host "  active streams   : $($d.summary.total_active_streams)" -ForegroundColor DarkGray
+        }
+        if ($d.fetched_at) {
+            $cacheAge = [math]::Round(([datetime]::UtcNow - [datetime]$d.fetched_at).TotalSeconds)
+            $cacheCol = if ($cacheAge -lt 90) { "Green" } elseif ($cacheAge -lt 180) { "Yellow" } else { "Red" }
+            Write-Host "  cache age        : " -NoNewline -ForegroundColor DarkGray
+            Write-Host "${cacheAge}s" -ForegroundColor $cacheCol
+        }
+        if ($d.threat_summary) {
+            $ts = $d.threat_summary
+            Write-Host "  threat scanners  : $($ts.scanners)" -ForegroundColor DarkGray
+            Write-Host "  threat probes    : $($ts.probes)" -ForegroundColor DarkGray
+            Write-Host "  brute force      : $($ts.brute_force)" -ForegroundColor DarkGray
+            Write-Host "  unique IPs       : $($ts.unique_ips)" -ForegroundColor DarkGray
+            Write-Host "  waf candidates   : $(@($d.waf_candidates).Count)" -ForegroundColor DarkGray
+        } else {
+            Write-Host "  threat_summary   : not present (GraphQL may still be warming)" -ForegroundColor DarkGray
+        }
+        $eaCount = @($d.error_analytics).Count
+        $eaCol   = if ($eaCount -gt 0) { "Green" } else { "Yellow" }
+        Write-Host "  error_analytics  : " -NoNewline -ForegroundColor DarkGray
+        Write-Host "$eaCount entries (past hour 4xx/5xx)" -ForegroundColor $eaCol
+        Write-Result "error_analytics populated" ($eaCount -gt 0) "$eaCount entries"
+        # Validate threat_history accumulation
+        $thCount = @($d.threat_history).Count
+        $thCol   = if ($thCount -gt 0) { "Green" } else { "Yellow" }
+        Write-Host "  threat_history   : " -NoNewline -ForegroundColor DarkGray
+        Write-Host "$thCount snapshot(s) (max 720 / ~24h)" -ForegroundColor $thCol
+        Write-Result "threat_history present in response" ($null -ne $d.threat_history) "$thCount entries"
+        if ($thCount -gt 0) {
+            $newest = $d.threat_history | Select-Object -Last 1
+            if ($newest.summary) {
+                Write-Host "  oldest snapshot  : $($newest.time)  total=$($newest.summary.total)  ips=$($newest.summary.unique_ips)" -ForegroundColor DarkGray
+            }
+        }
+        # Validate tunnel health
+        if ($d.summary.total_tunnels -gt 0 -and $d.summary.healthy -eq $d.summary.total_tunnels) {
+            Write-Result "All tunnels healthy" $true "$($d.summary.healthy)/$($d.summary.total_tunnels)"
+        } elseif ($d.summary.total_tunnels -gt 0) {
+            Write-Result "All tunnels healthy" $false "$($d.summary.healthy)/$($d.summary.total_tunnels) healthy"
+        }
+        # Validate nodes present
+        $nodeCount = @($d.nodes).Count
+        Write-Result "Nodes present in response" ($nodeCount -gt 0) "$nodeCount node(s)"
+    } catch {}
+} elseif ($r.Code -eq 0) {
+    Write-Host "  [WARN] No response - n8n webhook may not be running" -ForegroundColor DarkGray
+}
+
+# --- 9. Latency Regression (all endpoints) ------------------------------------
 Write-Host "`n--- Latency Regression (all endpoints) ---" -ForegroundColor Yellow
 
 $endpoints = @(
-    @{ Label = "/feed (default)";  Method = "GET"; Path = "/feed";            Query = @{ limit = "20" } },
-    @{ Label = "/r2z2-stats";      Method = "GET"; Path = "/r2z2-stats";      Query = @{} },
-    @{ Label = "/stats";           Method = "GET"; Path = "/stats";           Query = @{} },
-    @{ Label = "/search?q=Jita";   Method = "GET"; Path = "/search";          Query = @{ q = "Jita" } },
-    @{ Label = "/dashboard-intel"; Method = "GET"; Path = "/dashboard-intel"; Query = @{} }
+    @{ Label = "/feed (default)";           Method = "GET"; Path = "/feed";                    Query = @{ limit = "20" } },
+    @{ Label = "/r2z2-stats";               Method = "GET"; Path = "/r2z2-stats";              Query = @{} },
+    @{ Label = "/stats";                    Method = "GET"; Path = "/stats";                   Query = @{} },
+    @{ Label = "/search?q=Jita";            Method = "GET"; Path = "/search";                  Query = @{ q = "Jita" } },
+    @{ Label = "/dashboard-intel";          Method = "GET"; Path = "/dashboard-intel";         Query = @{} },
+    @{ Label = "/cloudflare-tunnel-status"; Method = "GET"; Path = "/cloudflare-tunnel-status"; Query = @{} }
 )
 
 foreach ($ep in $endpoints) {
@@ -318,7 +387,7 @@ foreach ($ep in $endpoints) {
     $ms       = $sw.ElapsedMilliseconds
     $ok       = $resp.Code -eq 200
     $latCol   = if ($ms -lt 500) { "Green" } elseif ($ms -lt 1500) { "Yellow" } else { "Red" }
-    $mark     = if ($ok) { "[OK]  " } else { "[FAIL]" }
+    $mark     = if ($ok) { '[OK]  ' } else { '[FAIL]' }
     $markCol  = if ($ok) { "Green" } else { "Red" }
     Write-Host "  $mark " -NoNewline -ForegroundColor $markCol
     Write-Host ("{0,-32}" -f $ep.Label) -NoNewline
