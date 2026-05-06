@@ -39,11 +39,12 @@ const server = http.createServer(async (req, res) => {
   try { url = new URL(req.url, base); }
   catch { res.writeHead(400); res.end('Bad request'); return; }
 
-  // CORS headers on every response
+  // CORS + cache headers on every response
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key');
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
