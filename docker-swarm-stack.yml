@@ -139,6 +139,23 @@ services:
     networks:
       - alfred_network
 
+  # --- AIN API: Standalone webhook service replacing n8n webhook endpoints ---
+  ain-api:
+    build:
+      context: ./Backend/ain-api
+    container_name: ain-api
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+    networks:
+      - alfred_network
+
   # --- SSE PUSH SERVER: Streams enriched kills to connected browser clients ---
   sse-server:
     build:

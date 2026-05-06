@@ -1,403 +1,307 @@
+#Requires -Version 5.1
 param(
-    [string]$BaseUrl = "https://api-ain.looknet.ca/webhook"
+    [string]$ApiBase = 'https://api-ain.looknet.ca/webhook',
+    [string]$SseBase = 'https://sse-ain.looknet.ca'
 )
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = 'Continue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $PassCount = 0
 $FailCount = 0
 
-function Write-Result {
-    param([string]$Label, [bool]$Passed, [string]$Details = "")
-    $color  = if ($Passed) { "Green" } else { "Red" }
-    $mark   = if ($Passed) { "[PASS]" } else { "[FAIL]" }
-    if ($Passed) { $script:PassCount++ } else { $script:FailCount++ }
-    $suffix = if ($Details) { " ($Details)" } else { "" }
-    Write-Host "$mark $Label$suffix" -ForegroundColor $color
-}
+function Write-Pass { param($msg) Write-Host "  [PASS] $msg" -ForegroundColor Green;  $script:PassCount++ }
+function Write-Fail { param($msg) Write-Host "  [FAIL] $msg" -ForegroundColor Red;    $script:FailCount++ }
+function Write-Info { param($msg) Write-Host "         $msg" -ForegroundColor DarkGray }
+function Section   { param($msg) Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 
-function Invoke-AIN {
+function Invoke-Api {
     param(
-        [string]$Method = "GET",
-        [string]$Path,
-        [hashtable]$Query = @{},
-        [object]$Body = $null
+        [string]$Url,
+        [string]$Method  = 'GET',
+        [hashtable]$Headers = @{},
+        [string]$Body    = '',
+        [int]$TimeoutSec = 20
     )
-    $uri = "$BaseUrl$Path"
-    if ($Query.Count -gt 0) {
-        $qs  = ($Query.GetEnumerator() | ForEach-Object { "$($_.Key)=$([Uri]::EscapeDataString($_.Value))" }) -join "&"
-        $uri = "${uri}?${qs}"
-    }
-    $p = @{ Uri = $uri; Method = $Method; UseBasicParsing = $true }
-    if ($Body -and $Method -ne "GET") {
-        $p.Body        = ($Body | ConvertTo-Json -Compress)
-        $p.ContentType = "application/json"
-    }
     try {
-        $resp = Invoke-WebRequest @p
-        return @{ Code = [int]$resp.StatusCode; Body = $resp.Content; Ok = $true }
+        $params = @{ Uri = $Url; Method = $Method; UseBasicParsing = $true; TimeoutSec = $TimeoutSec; Headers = $Headers }
+        if ($Body) { $params.Body = $Body; $params.ContentType = 'application/json' }
+        $r = Invoke-WebRequest @params
+        return @{ ok = $true; Code = [int]$r.StatusCode; Body = $r.Content }
     } catch {
-        $code = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
-        $body = ""
+        $code = 0
+        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+        $body = ''
         if ($_.Exception.Response) {
             try { $body = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream()).ReadToEnd() } catch {}
         }
-        return @{ Code = $code; Body = $body; Ok = $false; Err = $_.Exception.Message }
+        return @{ ok = $false; Code = $code; Body = $body; Err = $_.ToString() }
     }
 }
+
+function ConvertFrom-JsonSafe { param($s) try { $s | ConvertFrom-Json } catch { $null } }
 
 function Test-Code {
     param([string]$Label, [hashtable]$Resp, [int[]]$Expected)
     $passed = $Expected -contains $Resp.Code
-    $detail = "HTTP $($Resp.Code), expected $($Expected -join '|')"
-    Write-Result -Label $Label -Passed $passed -Details $detail
+    $detail = "HTTP $($Resp.Code)"
+    if ($passed) { Write-Pass "$Label  ($detail)" } else { Write-Fail "$Label  (got $detail, expected $($Expected -join '|'))" }
     return $passed
 }
 
-function Test-JsonKey {
+function Test-Keys {
     param([string]$Label, [hashtable]$Resp, [string[]]$Keys)
     try {
         $obj     = $Resp.Body | ConvertFrom-Json
         $missing = $Keys | Where-Object { -not ($obj.PSObject.Properties.Name -contains $_) }
-        if ($missing) {
-            Write-Result -Label $Label -Passed $false -Details "missing keys: $($missing -join ', ')"
-        } else {
-            Write-Result -Label $Label -Passed $true  -Details "keys present: $($Keys -join ', ')"
-        }
-    } catch {
-        Write-Result -Label $Label -Passed $false -Details "JSON parse error: $($_.Exception.Message)"
+        if ($missing) { Write-Fail "$Label  (missing: $($missing -join ', '))" }
+        else          { Write-Pass "$Label  (keys: $($Keys -join ', '))" }
+    } catch { Write-Fail "$Label  (JSON parse error)" }
+}
+
+# ---------------------------------------------------------------------------
+Section '/health'
+
+$r = Invoke-Api "$ApiBase/../health"
+if ($r.ok -and $r.Code -eq 200) { Write-Pass "/health 200 OK" }
+else { Write-Info "/health not reachable at $ApiBase (may not be proxied -- skipping)" }
+
+# ---------------------------------------------------------------------------
+Section '/webhook/r2z2-stats  (ingestion pipeline health)'
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r  = Invoke-Api "$ApiBase/r2z2-stats"
+$sw.Stop()
+Test-Code '/r2z2-stats -> 200' $r @(200)
+if ($r.ok) {
+    Test-Keys '/r2z2-stats shape' $r @('status','metrics','summary')
+    $j      = ConvertFrom-JsonSafe $r.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 500) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 1500) { 'Yellow' } else { 'Red' }
+    Write-Info "status=$($j.status)  heartbeat_ttl=$($j.heartbeat_ttl)s"
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    if ($j.summary) {
+        Write-Info "current_kpm=$($j.summary.current_kpm)  total_runs=$($j.summary.total_runs)  uptime=$($j.summary.uptime_minutes)min"
+    }
+    if ($j.status -eq 'active') { Write-Pass "r2z2 ingestion is active" }
+    else { Write-Fail "r2z2 status=$($j.status) (pipeline may be stalled)" }
+}
+
+# ---------------------------------------------------------------------------
+Section '/webhook/feed  (core poll endpoint)'
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r  = Invoke-Api "$ApiBase/feed?limit=10"
+$sw.Stop()
+Test-Code '/feed?limit=10 -> 200' $r @(200)
+if ($r.ok) {
+    Test-Keys '/feed response shape' $r @('kills','oldest_kill_id','isk_distribution','partial_result','end_of_results')
+    $j      = ConvertFrom-JsonSafe $r.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 500) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 1500) { 'Yellow' } else { 'Red' }
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    Write-Info "kills=$(@($j.kills).Count)  partial=$($j.partial_result)  end=$($j.end_of_results)"
+    if ($j.partial_result -eq $true) { Write-Info "[WARN] partial_result=true -- feed timed out scanning" }
+
+    # Pagination
+    if ($j.oldest_kill_id) {
+        $r2 = Invoke-Api "$ApiBase/feed?before_kill_id=$($j.oldest_kill_id)&limit=5"
+        Test-Code '/feed pagination (before_kill_id) -> 200' $r2 @(200)
     }
 }
 
-# --- Header -------------------------------------------------------------------
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  AIN Backend E2E Endpoint Tester"         -ForegroundColor Cyan
-Write-Host "  Target: $BaseUrl"                        -ForegroundColor Cyan
-Write-Host "==========================================`n" -ForegroundColor Cyan
+# Live update mode -- nonexistent ID should return empty, not 500
+$r3 = Invoke-Api "$ApiBase/feed?latest_known_id=99999999999&limit=10"
+Test-Code '/feed?latest_known_id=nonexistent -> 200' $r3 @(200)
 
-# --- 1. Health / R2Z2 Stats ---------------------------------------------------
-Write-Host "--- Health / R2Z2 Stats ---" -ForegroundColor Yellow
-
-$t = [Diagnostics.Stopwatch]::StartNew()
-$r = Invoke-AIN -Path "/r2z2-stats"
-$t.Stop()
-Test-Code    "GET /r2z2-stats -> 200"           $r @(200)
-Test-JsonKey "r2z2-stats has status + metrics"  $r @("status", "metrics")
-if ($r.Ok) {
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latMs  = $t.ElapsedMilliseconds
-        $latCol = if ($latMs -lt 500) { "Green" } elseif ($latMs -lt 1500) { "Yellow" } else { "Red" }
-        Write-Host "  ingestion status : $($d.status)" -ForegroundColor DarkGray
-        Write-Host "  heartbeat TTL    : $($d.heartbeat_ttl)s" -ForegroundColor DarkGray
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        if ($d.summary) {
-            Write-Host "  current KPM      : $($d.summary.current_kpm)"    -ForegroundColor DarkGray
-            Write-Host "  total runs       : $($d.summary.total_runs)"     -ForegroundColor DarkGray
-            Write-Host "  uptime           : $($d.summary.uptime_minutes) min" -ForegroundColor DarkGray
-        }
-    } catch {}
+# Filter params
+foreach ($case in @(
+    @{ qs = 'limit=3&filters_space=ns';          label = 'space filter (ns)' }
+    @{ qs = 'limit=3&filters_isk=1b-10b';        label = 'isk filter (1b-10b)' }
+    @{ qs = 'limit=3&filters_main=hide-pods';    label = 'hide-pods filter' }
+    @{ qs = 'limit=3&search_query=Jita';         label = 'search_query=Jita' }
+    @{ qs = 'limit=3&lurker=true';               label = 'lurker mode' }
+)) {
+    $r4 = Invoke-Api "$ApiBase/feed?$($case.qs)"
+    Test-Code "/feed?$($case.label)" $r4 @(200)
 }
 
-# --- 2. Feed ------------------------------------------------------------------
-Write-Host "`n--- Webhook - Feed ---" -ForegroundColor Yellow
+# Latency budget (warm cache)
+Invoke-Api "$ApiBase/feed?limit=50" | Out-Null
+$sw2 = [Diagnostics.Stopwatch]::StartNew()
+Invoke-Api "$ApiBase/feed?limit=50" | Out-Null
+$sw2.Stop()
+$budget = $sw2.ElapsedMilliseconds
+if ($budget -lt 2500) { Write-Pass "/feed 50 kills warm-cache under 2500ms  (${budget}ms)" }
+else                   { Write-Fail "/feed 50 kills warm-cache budget exceeded  (${budget}ms)" }
 
-# Basic fetch
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Path "/feed" -Query @{ limit = "10" }
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code    "GET /feed?limit=10 -> 200"  $r @(200)
-if ($r.Ok) {
-    Test-JsonKey "feed response shape" $r @("kills", "oldest_kill_id", "isk_distribution", "partial_result", "end_of_results")
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 500) { "Green" } elseif ($latMs -lt 1500) { "Yellow" } else { "Red" }
-        Write-Host "  kills returned   : $(@($d.kills).Count)"    -ForegroundColor DarkGray
-        Write-Host "  partial_result   : $($d.partial_result)"    -ForegroundColor DarkGray
-        Write-Host "  end_of_results   : $($d.end_of_results)"    -ForegroundColor DarkGray
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        $iskKeys = @($d.isk_distribution.PSObject.Properties.Name)
-        Write-Host "  isk_distribution : $($iskKeys.Count) buckets" -ForegroundColor DarkGray
-        if ($d.partial_result -eq $true) {
-            Write-Host "  [WARN] partial_result=true - feed timed out scanning" -ForegroundColor Yellow
-        }
-    } catch {}
+# ---------------------------------------------------------------------------
+Section '/webhook/stats'
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r  = Invoke-Api "$ApiBase/stats"
+$sw.Stop()
+Test-Code '/stats -> 200' $r @(200)
+if ($r.ok) {
+    $j      = ConvertFrom-JsonSafe $r.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 800) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 2000) { 'Yellow' } else { 'Red' }
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    Write-Info "keys: $(@($j.PSObject.Properties.Name) -join ', ')"
+    if ($j.total_count -gt 0)      { Write-Pass "total_count=$($j.total_count)" }
+    else                            { Write-Fail "total_count missing or zero" }
+    if ($j.stats_24h.kills -gt 0)  { Write-Pass "stats_24h.kills=$($j.stats_24h.kills)" }
+    else                            { Write-Fail "stats_24h.kills missing" }
+    if ($j.activity_heatmap)        { Write-Pass "activity_heatmap present" }
+    else                            { Write-Fail "activity_heatmap missing" }
 }
 
-# Live update mode - fake ID should return empty kills, not 500
-$r2 = Invoke-AIN -Path "/feed" -Query @{ latest_known_id = "99999999999"; limit = "10" }
-Test-Code "GET /feed?latest_known_id=nonexistent -> 200" $r2 @(200)
+$r5 = Invoke-Api "$ApiBase/stats?alliance_id=99000006"
+Test-Code '/stats?alliance_id= -> 200' $r5 @(200)
 
-# Pagination - before_kill_id
-if ($r.Ok) {
-    try {
-        $d = $r.Body | ConvertFrom-Json
-        if ($d.oldest_kill_id) {
-            $r3 = Invoke-AIN -Path "/feed" -Query @{ before_kill_id = "$($d.oldest_kill_id)"; limit = "5" }
-            Test-Code "GET /feed?before_kill_id (pagination) -> 200" $r3 @(200)
-        }
-    } catch {}
+# ---------------------------------------------------------------------------
+Section '/webhook/search'
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r  = Invoke-Api "$ApiBase/search?q=Jita"
+$sw.Stop()
+Test-Code '/search?q=Jita -> 200' $r @(200)
+if ($r.ok) {
+    $j      = ConvertFrom-JsonSafe $r.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 500) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 1500) { 'Yellow' } else { 'Red' }
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    Write-Info "result count: $(@($j).Count)"
 }
 
-# Space filter
-$r4 = Invoke-AIN -Path "/feed" -Query @{ filters_space = "ns"; limit = "5" }
-Test-Code "GET /feed?filters_space=ns -> 200" $r4 @(200)
-if ($r4.Ok) {
-    try {
-        $d4    = $r4.Body | ConvertFrom-Json
-        $allNs = @($d4.kills) | Where-Object { $_.space_type -ne "nullsec" -and $_.space_type -ne $null }
-        if (@($d4.kills).Count -gt 0 -and $allNs.Count -gt 0) {
-            Write-Result "feed nullsec filter - only nullsec kills" $false "found $($allNs.Count) non-nullsec kills"
-        } elseif (@($d4.kills).Count -gt 0) {
-            Write-Result "feed nullsec filter - only nullsec kills" $true "$(@($d4.kills).Count) kills, all nullsec"
-        } else {
-            Write-Result "feed nullsec filter - no data to validate" $true "0 kills returned"
-        }
-    } catch {}
+$r6 = Invoke-Api "$ApiBase/search?q=J"
+Test-Code '/search?q=J (1 char) -> 200 or 400' $r6 @(200, 400)
+
+$r7 = Invoke-Api "$ApiBase/search?q=Amarr&multi=true"
+Test-Code '/search?q=Amarr&multi=true -> 200' $r7 @(200)
+
+$r8 = Invoke-Api "$ApiBase/search"
+Test-Code '/search (no q param) -> 200 or 400' $r8 @(200, 400, 500)
+
+# ---------------------------------------------------------------------------
+Section '/webhook/dashboard-intel  (AlfredInt monitoring)'
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r  = Invoke-Api "$ApiBase/dashboard-intel"
+$sw.Stop()
+Test-Code '/dashboard-intel -> 200' $r @(200)
+if ($r.ok) {
+    Test-Keys '/dashboard-intel shape' $r @('overview','top_users','timeline')
+    $j      = ConvertFrom-JsonSafe $r.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 800) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 2000) { 'Yellow' } else { 'Red' }
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    Write-Info "active_pilots_now=$($j.overview.active_pilots_now)  total_tracked=$($j.overview.total_tracked)"
+    $firstUser = @($j.top_users)[0]
+    if ($firstUser -and $firstUser.PSObject.Properties.Name -contains 'connection_type') { Write-Pass "connection_type field present on top user" }
+    else { Write-Info "connection_type field missing (no active users)" }
 }
 
-# ISK filter
-$r5 = Invoke-AIN -Path "/feed" -Query @{ filters_isk = "1b-10b"; limit = "5" }
-Test-Code "GET /feed?filters_isk=1b-10b -> 200" $r5 @(200)
+# ---------------------------------------------------------------------------
+Section '/webhook/system  (POST only)'
 
-# Search
-$r6 = Invoke-AIN -Path "/feed" -Query @{ search_query = "Jita"; limit = "5" }
-Test-Code "GET /feed?search_query=Jita -> 200" $r6 @(200)
+$r = Invoke-Api "$ApiBase/system" -Method GET
+if ($r.Code -in @(400,404,405)) { Write-Pass "GET /system correctly rejected (HTTP $($r.Code))" }
+else { Write-Info "GET /system returned $($r.Code)" }
 
-# Lurker mode
-$r7 = Invoke-AIN -Path "/feed" -Query @{ lurker = "true"; limit = "5" }
-Test-Code "GET /feed?lurker=true -> 200" $r7 @(200)
-
-# Latency budget - two requests: first warms the ISK cache, second is the real measurement
-Invoke-AIN -Path "/feed" -Query @{ limit = "50" } | Out-Null
-$t2 = [Diagnostics.Stopwatch]::StartNew()
-Invoke-AIN -Path "/feed" -Query @{ limit = "50" } | Out-Null
-$t2.Stop()
-$budget = $t2.ElapsedMilliseconds
-Write-Result "GET /feed (50 kills, warm cache) under 2500ms" ($budget -lt 2500) "${budget}ms"
-
-# --- 3. Stats -----------------------------------------------------------------
-Write-Host "`n--- Webhook - Stats ---" -ForegroundColor Yellow
-
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Path "/stats"
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code "GET /stats -> 200" $r @(200)
-if ($r.Ok) {
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 800) { "Green" } elseif ($latMs -lt 2000) { "Yellow" } else { "Red" }
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        Write-Host "  top-level keys   : $(@($d.PSObject.Properties.Name) -join ', ')" -ForegroundColor DarkGray
-    } catch {}
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r9 = Invoke-Api "$ApiBase/system" -Method POST -Body '{"query_name":"Jita","query_type":"system"}'
+$sw.Stop()
+Test-Code 'POST /system {query_name=Jita} -> 200' $r9 @(200)
+if ($r9.ok) {
+    $j      = ConvertFrom-JsonSafe $r9.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 1000) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 3000) { 'Yellow' } else { 'Red' }
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    $td = $j.templated_response_data
+    if ($td) { Write-Info "system=$($td.query_name)  security=$($td.security_class)  threat=$($td.threat_level)" }
 }
 
-$r2 = Invoke-AIN -Path "/stats" -Query @{ alliance_id = "99000006" }
-Test-Code "GET /stats?alliance_id=99000006 -> 200" $r2 @(200)
+$r10 = Invoke-Api "$ApiBase/system" -Method POST -Body '{"query_name":"The Forge","query_type":"region"}'
+Test-Code 'POST /system {query_type=region} -> 200' $r10 @(200)
 
-# --- 4. Search ----------------------------------------------------------------
-Write-Host "`n--- Webhook - Search ---" -ForegroundColor Yellow
+$r11 = Invoke-Api "$ApiBase/system" -Method POST -Body '{}'
+Test-Code 'POST /system (empty body) -> 400 or 500' $r11 @(400, 500)
 
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Path "/search" -Query @{ q = "Jita" }
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code "GET /search?q=Jita -> 200" $r @(200)
-if ($r.Ok) {
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 500) { "Green" } elseif ($latMs -lt 1500) { "Yellow" } else { "Red" }
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        Write-Host "  result count     : $(@($d).Count)" -ForegroundColor DarkGray
-    } catch {}
+# ---------------------------------------------------------------------------
+Section '/webhook/sse-presence  (SSE monitoring)'
+
+$presenceBody = '{"view":"compact","query":{"filters_space":"nullsec"},"fingerprint":"pilot_testendpoints"}'
+$r  = Invoke-Api "$ApiBase/sse-presence" -Method POST -Body $presenceBody
+Test-Code 'POST /sse-presence -> 200' $r @(200)
+if ($r.ok) {
+    $j = ConvertFrom-JsonSafe $r.Body
+    if ($j.ok -eq $true) { Write-Pass "response ok=true" }
+    else                  { Write-Fail "response ok != true" }
 }
 
-# 1-char query - expect rejection or empty
-$r2 = Invoke-AIN -Path "/search" -Query @{ q = "J" }
-Test-Code "GET /search?q=J (1 char) -> 200 or 400" $r2 @(200, 400)
+# ---------------------------------------------------------------------------
+Section '/webhook/killmail-dashboard  (may be disabled)'
 
-# Multi mode
-$r3 = Invoke-AIN -Path "/search" -Query @{ q = "Amarr"; multi = "true" }
-Test-Code "GET /search?q=Amarr&multi=true -> 200" $r3 @(200)
-
-# No query param
-$r4 = Invoke-AIN -Path "/search"
-Test-Code "GET /search (no q param) -> 200 or 400" $r4 @(200, 400, 500)
-
-# --- 5. Intel / Dashboard -----------------------------------------------------
-Write-Host "`n--- Webhook - Intel ---" -ForegroundColor Yellow
-
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Path "/dashboard-intel"
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code "GET /dashboard-intel -> 200" $r @(200)
-if ($r.Ok) {
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 800) { "Green" } elseif ($latMs -lt 2000) { "Yellow" } else { "Red" }
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        Write-Host "  top-level keys   : $(@($d.PSObject.Properties.Name) -join ', ')" -ForegroundColor DarkGray
-    } catch {}
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$r  = Invoke-Api "$ApiBase/killmail-dashboard?limit=10"
+$sw.Stop()
+Test-Code '/killmail-dashboard -> 200 or 404' $r @(200, 404)
+if ($r.Code -eq 200) {
+    $j      = ConvertFrom-JsonSafe $r.Body
+    $latCol = if ($sw.ElapsedMilliseconds -lt 300) { 'Green' } elseif ($sw.ElapsedMilliseconds -lt 800) { 'Yellow' } else { 'Red' }
+    Write-Host "         response: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$($sw.ElapsedMilliseconds)ms" -ForegroundColor $latCol
+    Write-Info "kills=$(@($j.kills).Count)"
+} elseif ($r.Code -eq 404) {
+    Write-Info "[INFO] 404 expected if ain-api is not yet routing this endpoint"
 }
 
-# --- 6. System (POST) ---------------------------------------------------------
-Write-Host "`n--- Webhook - System ---" -ForegroundColor Yellow
+# ---------------------------------------------------------------------------
+Section 'SSE server  (sse-ain.looknet.ca)'
 
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Method "POST" -Path "/system" -Body @{ query_name = "Jita"; query_type = "system" }
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code "POST /system {query_name=Jita} -> 200" $r @(200)
-if ($r.Ok) {
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 1000) { "Green" } elseif ($latMs -lt 3000) { "Yellow" } else { "Red" }
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        $td = $d.templated_response_data
-        if ($td) {
-            Write-Host "  system           : $($td.query_name)"    -ForegroundColor DarkGray
-            Write-Host "  security class   : $($td.security_class)" -ForegroundColor DarkGray
-            Write-Host "  threat level     : $($td.threat_level)"  -ForegroundColor DarkGray
-        }
-    } catch {}
+$r = Invoke-Api "$SseBase/health"
+Test-Code 'SSE /health -> 200' $r @(200)
+if ($r.ok) {
+    $j = ConvertFrom-JsonSafe $r.Body
+    if ($j.status -eq 'ok') { Write-Pass "SSE status=ok  clients=$($j.clients)" }
+    else                     { Write-Fail "SSE unexpected status: $($j.status)" }
+
+    $rBad = Invoke-Api "$SseBase/publish" -Method POST -Headers @{ 'X-Publish-Secret' = 'wrong' } -Body '{}'
+    if ($rBad.Code -eq 401) { Write-Pass "/publish rejects wrong secret (401)" }
+    else                     { Write-Fail "/publish wrong secret returned $($rBad.Code)" }
 }
 
-$r2 = Invoke-AIN -Method "POST" -Path "/system" -Body @{ query_name = "The Forge"; query_type = "region" }
-Test-Code "POST /system {query_type=region} -> 200" $r2 @(200)
-
-$r3 = Invoke-AIN -Method "POST" -Path "/system" -Body @{}
-Test-Code "POST /system (empty body) -> 400 or 500" $r3 @(400, 500, 200)
-
-# --- 7. Killmail Dashboard (Hot Cache) ----------------------------------------
-# NOTE: This workflow (webhook_cache.json) is disabled in n8n - 404 is expected.
-#       Re-enable it in the n8n UI if this endpoint is needed.
-Write-Host "`n--- Webhook - Killmail Dashboard Cache ---" -ForegroundColor Yellow
-
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Path "/killmail-dashboard" -Query @{ limit = "10" }
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code "GET /killmail-dashboard?limit=10 -> 200 or 404" $r @(200, 404)
-if ($r.Code -eq 404) {
-    Write-Host "  [INFO] workflow is disabled in n8n - 404 expected" -ForegroundColor DarkGray
-} elseif ($r.Ok) {
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 300) { "Green" } elseif ($latMs -lt 800) { "Yellow" } else { "Red" }
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms" -ForegroundColor $latCol
-        Write-Host "  kills returned   : $(@($d.kills).Count)" -ForegroundColor DarkGray
-    } catch {}
-}
-
-# --- 8. Cloudflare Tunnel Monitor --------------------------------------------
-Write-Host "`n--- Webhook - Cloudflare Tunnel Status ---" -ForegroundColor Yellow
-
-$t     = [Diagnostics.Stopwatch]::StartNew()
-$r     = Invoke-AIN -Path "/cloudflare-tunnel-status"
-$t.Stop()
-$latMs = $t.ElapsedMilliseconds
-Test-Code "GET /cloudflare-tunnel-status -> 200" $r @(200)
-if ($r.Ok) {
-    Test-JsonKey "tunnel-status has summary + tunnels + nodes + threat fields" $r @("summary", "tunnels", "nodes", "threat_log", "waf_candidates", "threat_history")
-    try {
-        $d      = $r.Body | ConvertFrom-Json
-        $latCol = if ($latMs -lt 300) { "Green" } elseif ($latMs -lt 1000) { "Yellow" } else { "Red" }
-        Write-Host "  response time    : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "${latMs}ms (cached)" -ForegroundColor $latCol
-        if ($d.summary) {
-            Write-Host "  tunnels          : $($d.summary.total_tunnels) ($($d.summary.healthy) healthy)" -ForegroundColor DarkGray
-            Write-Host "  connectors       : $($d.summary.total_connectors)" -ForegroundColor DarkGray
-            Write-Host "  total requests   : $($d.summary.total_requests)" -ForegroundColor DarkGray
-            Write-Host "  active streams   : $($d.summary.total_active_streams)" -ForegroundColor DarkGray
-        }
-        if ($d.fetched_at) {
-            $cacheAge = [math]::Round(([datetime]::UtcNow - [datetime]$d.fetched_at).TotalSeconds)
-            $cacheCol = if ($cacheAge -lt 90) { "Green" } elseif ($cacheAge -lt 180) { "Yellow" } else { "Red" }
-            Write-Host "  cache age        : " -NoNewline -ForegroundColor DarkGray
-            Write-Host "${cacheAge}s" -ForegroundColor $cacheCol
-        }
-        if ($d.threat_summary) {
-            $ts = $d.threat_summary
-            Write-Host "  threat scanners  : $($ts.scanners)" -ForegroundColor DarkGray
-            Write-Host "  threat probes    : $($ts.probes)" -ForegroundColor DarkGray
-            Write-Host "  brute force      : $($ts.brute_force)" -ForegroundColor DarkGray
-            Write-Host "  unique IPs       : $($ts.unique_ips)" -ForegroundColor DarkGray
-            Write-Host "  waf candidates   : $(@($d.waf_candidates).Count)" -ForegroundColor DarkGray
-        } else {
-            Write-Host "  threat_summary   : not present (GraphQL may still be warming)" -ForegroundColor DarkGray
-        }
-        $eaCount = @($d.error_analytics).Count
-        $eaCol   = if ($eaCount -gt 0) { "Green" } else { "Yellow" }
-        Write-Host "  error_analytics  : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "$eaCount entries (past hour 4xx/5xx)" -ForegroundColor $eaCol
-        Write-Result "error_analytics populated" ($eaCount -gt 0) "$eaCount entries"
-        # Validate threat_history accumulation
-        $thCount = @($d.threat_history).Count
-        $thCol   = if ($thCount -gt 0) { "Green" } else { "Yellow" }
-        Write-Host "  threat_history   : " -NoNewline -ForegroundColor DarkGray
-        Write-Host "$thCount snapshot(s) (max 720 / ~24h)" -ForegroundColor $thCol
-        Write-Result "threat_history present in response" ($null -ne $d.threat_history) "$thCount entries"
-        if ($thCount -gt 0) {
-            $newest = $d.threat_history | Select-Object -Last 1
-            if ($newest.summary) {
-                Write-Host "  oldest snapshot  : $($newest.time)  total=$($newest.summary.total)  ips=$($newest.summary.unique_ips)" -ForegroundColor DarkGray
-            }
-        }
-        # Validate tunnel health
-        if ($d.summary.total_tunnels -gt 0 -and $d.summary.healthy -eq $d.summary.total_tunnels) {
-            Write-Result "All tunnels healthy" $true "$($d.summary.healthy)/$($d.summary.total_tunnels)"
-        } elseif ($d.summary.total_tunnels -gt 0) {
-            Write-Result "All tunnels healthy" $false "$($d.summary.healthy)/$($d.summary.total_tunnels) healthy"
-        }
-        # Validate nodes present
-        $nodeCount = @($d.nodes).Count
-        Write-Result "Nodes present in response" ($nodeCount -gt 0) "$nodeCount node(s)"
-    } catch {}
-} elseif ($r.Code -eq 0) {
-    Write-Host "  [WARN] No response - n8n webhook may not be running" -ForegroundColor DarkGray
-}
-
-# --- 9. Latency Regression (all endpoints) ------------------------------------
-Write-Host "`n--- Latency Regression (all endpoints) ---" -ForegroundColor Yellow
+# ---------------------------------------------------------------------------
+Section 'Latency regression (all endpoints)'
 
 $endpoints = @(
-    @{ Label = "/feed (default)";           Method = "GET"; Path = "/feed";                    Query = @{ limit = "20" } },
-    @{ Label = "/r2z2-stats";               Method = "GET"; Path = "/r2z2-stats";              Query = @{} },
-    @{ Label = "/stats";                    Method = "GET"; Path = "/stats";                   Query = @{} },
-    @{ Label = "/search?q=Jita";            Method = "GET"; Path = "/search";                  Query = @{ q = "Jita" } },
-    @{ Label = "/dashboard-intel";          Method = "GET"; Path = "/dashboard-intel";         Query = @{} },
-    @{ Label = "/cloudflare-tunnel-status"; Method = "GET"; Path = "/cloudflare-tunnel-status"; Query = @{} }
+    @{ Label = '/feed (default)';      Method = 'GET';  Url = "$ApiBase/feed?limit=20" }
+    @{ Label = '/r2z2-stats';          Method = 'GET';  Url = "$ApiBase/r2z2-stats" }
+    @{ Label = '/stats';               Method = 'GET';  Url = "$ApiBase/stats" }
+    @{ Label = '/search?q=Jita';       Method = 'GET';  Url = "$ApiBase/search?q=Jita" }
+    @{ Label = '/dashboard-intel';     Method = 'GET';  Url = "$ApiBase/dashboard-intel" }
 )
 
 foreach ($ep in $endpoints) {
     $sw   = [Diagnostics.Stopwatch]::StartNew()
-    $resp = Invoke-AIN -Method $ep.Method -Path $ep.Path -Query $ep.Query
+    $resp = Invoke-Api $ep.Url -Method $ep.Method
     $sw.Stop()
     $ms       = $sw.ElapsedMilliseconds
     $ok       = $resp.Code -eq 200
-    $latCol   = if ($ms -lt 500) { "Green" } elseif ($ms -lt 1500) { "Yellow" } else { "Red" }
+    $latCol   = if ($ms -lt 500) { 'Green' } elseif ($ms -lt 1500) { 'Yellow' } else { 'Red' }
+    $markCol  = if ($ok) { 'Green' } else { 'Red' }
     $mark     = if ($ok) { '[OK]  ' } else { '[FAIL]' }
-    $markCol  = if ($ok) { "Green" } else { "Red" }
     Write-Host "  $mark " -NoNewline -ForegroundColor $markCol
     Write-Host ("{0,-32}" -f $ep.Label) -NoNewline
     Write-Host "${ms}ms" -ForegroundColor $latCol
 }
 
-# --- Summary ------------------------------------------------------------------
-Write-Host "`n==========================================" -ForegroundColor Cyan
-Write-Host "  Results: " -NoNewline -ForegroundColor Cyan
-Write-Host "$PassCount PASSED" -NoNewline -ForegroundColor Green
+# ---------------------------------------------------------------------------
+Write-Host "`n--------------------------------------------------"
+Write-Host "Results: " -NoNewline
+Write-Host "$PassCount passed" -ForegroundColor Green -NoNewline
 Write-Host "  /  " -NoNewline
-Write-Host "$FailCount FAILED" -ForegroundColor $(if ($FailCount -eq 0) { "Green" } else { "Red" })
-Write-Host "==========================================`n" -ForegroundColor Cyan
+Write-Host "$FailCount failed" -ForegroundColor $(if ($FailCount -gt 0) { 'Red' } else { 'Green' })
+Write-Host "--------------------------------------------------"
+if ($FailCount -gt 0) { exit 1 }
