@@ -112,6 +112,9 @@ export interface HistoryPoint {
   rx: number
   tx: number
   response_codes: Record<string, number>
+  err503?: number
+  err504?: number
+  authentik_errors?: number
 }
 
 export interface ErrorAnalyticsEntry {

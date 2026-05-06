@@ -9,8 +9,10 @@ import { ResponseCodes } from './ResponseCodes'
 import { EdgeErrors } from './EdgeErrors'
 import { Timeline } from './Timeline'
 import { ThreatIntelPanel } from './ThreatIntelPanel'
+import { ServiceHealth } from './ServiceHealth'
 import { Panel } from '../shared/Panel'
 import { Badge } from '../shared/Badge'
+import { fmtN } from '../../utils'
 import type { TunnelData } from '../../types'
 
 interface Props {
@@ -81,6 +83,23 @@ export function OverviewMode({ data, reqRates, streamRates, errRates }: Props) {
 
           <Panel title="Response Codes" badge={<Badge color={sr != null ? (+sr >= 99 ? 'green' : +sr >= 90 ? 'yellow' : 'red') : 'muted'}>{sr != null ? `${sr}%` : '—'}</Badge>}>
             <ResponseCodes nodes={nodes} />
+          </Panel>
+
+          <Panel title="Service Health" badge={
+            <Badge color={(() => {
+              const h = data.history ?? []
+              const cur503 = h.length ? (h[h.length-1].err503 ?? h[h.length-1].response_codes?.['503'] ?? 0) : 0
+              const curAuth = h.length ? (h[h.length-1].authentik_errors ?? 0) : 0
+              return cur503 > 0 || curAuth > 0 ? 'red' : 'green'
+            })()}>
+              {(() => {
+                const h = data.history ?? []
+                const cur503 = h.length ? (h[h.length-1].err503 ?? h[h.length-1].response_codes?.['503'] ?? 0) : 0
+                return cur503 > 0 ? `${fmtN(cur503)} 503s` : 'Nominal'
+              })()}
+            </Badge>
+          }>
+            <ServiceHealth history={data.history ?? []} data={data} />
           </Panel>
 
           <Panel title="Recent Edge Errors" badge={<Badge color="red">Past Hour</Badge>}>
