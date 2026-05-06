@@ -7,24 +7,26 @@ function ActivityLog({ entries }: { entries: ThreatLogEntry[] }) {
   if (!entries.length) return <div className="no-data">No threat activity in past hour</div>
   const sorted = [...entries].sort((a, b) => b.count - a.count).slice(0, 50)
   return (
-    <table className="threat-table">
-      <thead>
-        <tr><th>IP</th><th>Country</th><th>Class</th><th>Path</th><th>UA</th><th>Status</th><th>Count</th></tr>
-      </thead>
-      <tbody>
-        {sorted.map((e, i) => (
-          <tr key={i}>
-            <td style={{ fontFamily: 'monospace', fontSize: 10 }}>{e.ip}</td>
-            <td style={{ fontSize: 10 }}>{e.country || '—'}</td>
-            <td><TcBadge cls={e.threat_class} /></td>
-            <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }} title={e.path}>{e.path || '—'}</td>
-            <td style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9, color: 'var(--dim)' }} title={e.ua}>{e.ua || '—'}</td>
-            <td style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 16, fontWeight: 700, color: e.status >= 500 ? 'var(--red)' : e.status >= 400 ? 'var(--yellow)' : 'var(--muted)' }}>{e.status || '—'}</td>
-            <td style={{ fontWeight: 700, color: 'var(--orange)' }}>{fmtN(e.count)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="tbl-wrap">
+      <table className="threat-table">
+        <thead>
+          <tr><th>IP</th><th>Country</th><th>Class</th><th>Path</th><th>UA</th><th>Status</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+          {sorted.map((e, i) => (
+            <tr key={i}>
+              <td style={{ fontFamily: 'monospace', fontSize: 10 }}>{e.ip}</td>
+              <td style={{ fontSize: 10 }}>{e.country || '—'}</td>
+              <td><TcBadge cls={e.threat_class} /></td>
+              <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }} title={e.path}>{e.path || '—'}</td>
+              <td style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9, color: 'var(--dim)' }} title={e.ua}>{e.ua || '—'}</td>
+              <td style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 16, fontWeight: 700, color: e.status >= 500 ? 'var(--red)' : e.status >= 400 ? 'var(--yellow)' : 'var(--muted)' }}>{e.status || '—'}</td>
+              <td style={{ fontWeight: 700, color: 'var(--orange)' }}>{fmtN(e.count)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

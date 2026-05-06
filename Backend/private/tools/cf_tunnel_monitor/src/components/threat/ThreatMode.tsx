@@ -108,7 +108,7 @@ function TopOffenders({ history }: { history: ThreatHistoryPoint[] }) {
   if (!sorted.length) return <div className="no-data">No offenders tracked yet</div>
 
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div className="tbl-wrap">
       <table className="th-offenders-table">
         <thead>
           <tr><th>IP</th><th>Country</th><th>Hits</th><th>Class</th><th>Severity</th><th>Sample Paths</th></tr>
