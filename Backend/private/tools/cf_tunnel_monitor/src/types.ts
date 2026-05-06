@@ -154,6 +154,7 @@ export interface ThreatSummary {
   brute_force: number
   anomalies: number
   high_severity: number
+  top_countries?: { country: string; hits: number }[]
 }
 
 export interface WafCandidate {
@@ -200,6 +201,7 @@ export interface ThreatLibraryEntry {
   severity_peak: 'high' | 'medium' | 'low'
   sample_paths: string[]
   sample_uas: string[]
+  dormant?: boolean
 }
 
 export interface TunnelData {

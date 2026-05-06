@@ -104,6 +104,17 @@ export function ThreatIntelPanel({ threatLog, threatSummary, wafCandidates }: {
               </div>
             ))}
           </div>
+          {threatSummary.top_countries && threatSummary.top_countries.length > 0 && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', alignSelf: 'center' }}>Top Countries</span>
+              {threatSummary.top_countries.map(c => (
+                <span key={c.country} style={{ fontSize: 10, color: 'var(--dim)' }}>
+                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>{c.country}</span>
+                  {' '}<span style={{ color: 'var(--orange)', fontFamily: "'Barlow Condensed',sans-serif", fontSize: 13, fontWeight: 700 }}>{fmtN(c.hits)}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div className="ti-tabs">

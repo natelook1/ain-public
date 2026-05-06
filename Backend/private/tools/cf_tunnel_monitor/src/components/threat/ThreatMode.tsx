@@ -165,8 +165,11 @@ function ThreatLibrary({ library }: { library: ThreatLibraryEntry[] }) {
           </thead>
           <tbody>
             {sorted.map(e => (
-              <tr key={e.ip}>
-                <td style={{ fontFamily: 'monospace', fontSize: 10 }}>{e.ip}</td>
+              <tr key={e.ip} style={{ opacity: e.dormant ? 0.4 : 1 }}>
+                <td style={{ fontFamily: 'monospace', fontSize: 10 }}>
+                  {e.ip}
+                  {e.dormant && <span style={{ fontSize: 8, color: 'var(--dim)', marginLeft: 4 }}>dormant</span>}
+                </td>
                 <td style={{ fontSize: 10 }}>{(e.countries ?? []).join(', ') || '—'}</td>
                 <td style={{ fontWeight: 700, color: 'var(--orange)' }}>{fmtN(e.total_hits_alltime ?? 0)}</td>
                 <td className={severityClass(e.severity_peak)}>{e.severity_peak}</td>
