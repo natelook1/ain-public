@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useTunnelData, LIVE_INTERVAL, OVERVIEW_INTERVAL } from './hooks/useTunnelData'
 import { useLiveHistory } from './hooks/useLiveHistory'
 import { OverviewMode } from './components/overview/OverviewMode'
@@ -15,13 +15,6 @@ export default function App() {
   const { data, loading, error, lastFetch, fetchNow } = useTunnelData(interval)
   const { push } = useLiveHistory()
 
-  // Rolling sparkline history for overview strip
-  const [reqRates, setReqRates] = useState<number[]>([])
-  const [streamRates, setStreamRates] = useState<number[]>([])
-  const [errRates, setErrRates] = useState<number[]>([])
-  const prevReqsRef = useRef<number | null>(null)
-  const prevErrsRef = useRef<number | null>(null)
-
   // Live deltas
   const [deltas, setDeltas] = useState<LiveDeltas | null>(null)
 
@@ -29,24 +22,17 @@ export default function App() {
     if (!data) return
     const d = push(data)
     setDeltas(d)
-
-    // Accumulate strip sparklines
-    setReqRates(prev => {
-      const next = [...prev, data.summary.total_requests]
-      return next.slice(-SPARK_MAX)
-    })
-    setStreamRates(prev => {
-      const next = [...prev, data.summary.total_active_streams]
-      return next.slice(-SPARK_MAX)
-    })
-    // Error rate = delta from previous
-    if (prevErrsRef.current != null) {
-      const delta = Math.max(0, data.summary.total_proxy_errors - prevErrsRef.current)
-      setErrRates(prev => [...prev, delta].slice(-SPARK_MAX))
-    }
-    prevErrsRef.current = data.summary.total_proxy_errors
-    prevReqsRef.current = data.summary.total_requests
   }, [data, push])
+
+  // Sparkline rates derived from Redis history (same source as old monolith)
+  const history = data?.history ?? []
+  const reqRates = history.length > 1
+    ? history.slice(1).map((c, i) => Math.max(0, c.requests - history[i].requests)).slice(-SPARK_MAX)
+    : history.length === 1 ? [0] : []
+  const streamRates = history.map(h => h.streams ?? 0).slice(-SPARK_MAX)
+  const errRates = history.length > 1
+    ? history.slice(1).map((c, i) => Math.max(0, c.errors - history[i].errors)).slice(-SPARK_MAX)
+    : history.length === 1 ? [0] : []
 
   // Body class for CSS mode switching
   useEffect(() => {

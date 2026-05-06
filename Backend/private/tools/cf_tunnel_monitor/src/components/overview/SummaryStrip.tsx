@@ -1,5 +1,5 @@
 import { Sparkline } from '../shared/Sparkline'
-import { fmtN, nodeName } from '../../utils'
+import { fmtN, fmtMbps, nodeName } from '../../utils'
 import type { TunnelData } from '../../types'
 
 interface Props {
@@ -58,8 +58,18 @@ export function SummaryStrip({ data, reqRates, streamRates, errRates }: Props) {
   const rollingErrs = errRates.reduce((s, v) => s + v, 0)
   const errsColor = rollingErrs === 0 ? 'var(--green)' : rollingErrs < 50 ? 'var(--yellow)' : 'var(--red)'
 
-  const liveRate = reqRates.length >= 2 ? reqRates[reqRates.length - 1] - reqRates[reqRates.length - 2] : null
-  const trafficLabel = liveRate != null ? `+${fmtN(liveRate)}/min` : '—'
+  const history = data.history ?? []
+  let rxBps = 0, txBps = 0
+  if (history.length >= 2) {
+    const cur = history[history.length - 1]
+    const prev = history[history.length - 2]
+    const elapsedSec = (new Date(cur.time).getTime() - new Date(prev.time).getTime()) / 1000 || 120
+    rxBps = Math.max(0, cur.rx - prev.rx) / elapsedSec
+    txBps = Math.max(0, cur.tx - prev.tx) / elapsedSec
+  }
+  const totalMbps = (rxBps + txBps) * 8 / 1e6
+  const trafficLabel = history.length >= 2 ? (totalMbps > 0.01 ? totalMbps.toFixed(1) : '0.0') : '—'
+  const trafficSub = history.length < 2 ? 'gathering data…' : `↓ ${fmtMbps(rxBps)} · ↑ ${fmtMbps(txBps)} Mbps`
 
   return (
     <div className="strip">
@@ -70,7 +80,7 @@ export function SummaryStrip({ data, reqRates, streamRates, errRates }: Props) {
       <KPI label="CF Routing" value={lb ? routingLabel : '—'} color={lb ? routingColor : undefined} sub={routingSub} />
       <KPI label="Success Rate" value={sr != null ? `${sr}%` : '—'} color={srColor} sub="2xx / total" />
       <KPI label="Proxy Errors" value={fmtN(rollingErrs)} color={errsColor} sub="past hour" spark={errRates} sparkColor="var(--red)" />
-      <KPI label="Live Traffic" value={trafficLabel} sub="gathering data…" />
+      <KPI label="Live Traffic" value={history.length >= 2 ? `${trafficLabel} Mbps` : trafficLabel} sub={trafficSub} spark={reqRates} sparkColor="var(--accent)" />
     </div>
   )
 }
