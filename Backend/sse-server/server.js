@@ -5,7 +5,7 @@ const { URL } = require('url');
 
 const PORT = process.env.SSE_PORT || 3001;
 const PUBLISH_SECRET = process.env.PUBLISH_SECRET || 'local-dev';
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const CORS_ORIGINS = new Set((process.env.CORS_ORIGIN || '*').split(',').map(s => s.trim()));
 
 // In-memory client registry
 // Map<clientId, { res, filters }>
@@ -143,7 +143,9 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
+  const reqOrigin = req.headers.origin || '';
+  const allowedOrigin = CORS_ORIGINS.has('*') ? '*' : (CORS_ORIGINS.has(reqOrigin) ? reqOrigin : '');
+  if (allowedOrigin) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Publish-Secret');
 
