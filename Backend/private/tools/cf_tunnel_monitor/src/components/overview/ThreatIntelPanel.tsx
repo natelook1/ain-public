@@ -5,23 +5,39 @@ import type { ThreatLogEntry, ThreatSummary, WafCandidate } from '../../types'
 
 function ActivityLog({ entries }: { entries: ThreatLogEntry[] }) {
   if (!entries.length) return <div className="no-data">No threat activity in past hour</div>
-  const sorted = [...entries].sort((a, b) => b.count - a.count).slice(0, 50)
+
+  // Aggregate by IP so a single scanner doesn't flood 50 rows
+  const byIp: Record<string, { ip: string; country: string; total: number; classes: Set<string>; paths: string[]; statuses: Set<number>; ua: string }> = {}
+  entries.forEach(e => {
+    if (!byIp[e.ip]) byIp[e.ip] = { ip: e.ip, country: e.country, total: 0, classes: new Set(), paths: [], statuses: new Set(), ua: e.ua }
+    byIp[e.ip].total += e.count
+    byIp[e.ip].classes.add(e.threat_class)
+    byIp[e.ip].statuses.add(e.status)
+    if (byIp[e.ip].paths.length < 4 && !byIp[e.ip].paths.includes(e.path)) byIp[e.ip].paths.push(e.path)
+  })
+  const rows = Object.values(byIp).sort((a, b) => b.total - a.total).slice(0, 40)
+
   return (
     <div className="tbl-wrap">
       <table className="threat-table">
         <thead>
-          <tr><th>IP</th><th>Country</th><th>Class</th><th>Path</th><th>UA</th><th>Status</th><th>Count</th></tr>
+          <tr><th>IP</th><th>Country</th><th>Class</th><th>Sample Paths</th><th>Statuses</th><th>Total Hits</th></tr>
         </thead>
         <tbody>
-          {sorted.map((e, i) => (
-            <tr key={i}>
-              <td style={{ fontFamily: 'monospace', fontSize: 10 }}>{e.ip}</td>
+          {rows.map(e => (
+            <tr key={e.ip}>
+              <td style={{ fontFamily: 'monospace', fontSize: 10, whiteSpace: 'nowrap' }}>{e.ip}</td>
               <td style={{ fontSize: 10 }}>{e.country || '—'}</td>
-              <td><TcBadge cls={e.threat_class} /></td>
-              <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }} title={e.path}>{e.path || '—'}</td>
-              <td style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9, color: 'var(--dim)' }} title={e.ua}>{e.ua || '—'}</td>
-              <td style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 16, fontWeight: 700, color: e.status >= 500 ? 'var(--red)' : e.status >= 400 ? 'var(--yellow)' : 'var(--muted)' }}>{e.status || '—'}</td>
-              <td style={{ fontWeight: 700, color: 'var(--orange)' }}>{fmtN(e.count)}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>{[...e.classes].map(c => <TcBadge key={c} cls={c} />)}</td>
+              <td style={{ maxWidth: 200, fontSize: 9, color: 'var(--dim)' }}>
+                {e.paths.map(p => <div key={p} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p}>{p}</div>)}
+              </td>
+              <td style={{ whiteSpace: 'nowrap' }}>
+                {[...e.statuses].map(s => (
+                  <span key={s} style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 14, fontWeight: 700, marginRight: 4, color: s >= 500 ? 'var(--red)' : s >= 400 ? 'var(--yellow)' : 'var(--muted)' }}>{s}</span>
+                ))}
+              </td>
+              <td style={{ fontWeight: 700, color: 'var(--orange)', whiteSpace: 'nowrap' }}>{fmtN(e.total)}</td>
             </tr>
           ))}
         </tbody>
