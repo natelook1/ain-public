@@ -187,6 +187,18 @@ export interface ThreatHistoryPoint {
   }[]
 }
 
+export interface ThreatLibraryEntry {
+  ip: string
+  first_seen: string
+  last_seen: string
+  total_hits_alltime: number
+  countries: string[]
+  threat_classes: string[]
+  severity_peak: 'high' | 'medium' | 'low'
+  sample_paths: string[]
+  sample_uas: string[]
+}
+
 export interface TunnelData {
   summary: {
     total_tunnels: number
@@ -209,6 +221,7 @@ export interface TunnelData {
   threat_summary: ThreatSummary | null
   waf_candidates: WafCandidate[]
   threat_history: ThreatHistoryPoint[]
+  threat_library: ThreatLibraryEntry[]
   fetched_at: string
 }
 

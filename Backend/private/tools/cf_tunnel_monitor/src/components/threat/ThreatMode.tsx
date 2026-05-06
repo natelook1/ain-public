@@ -1,9 +1,10 @@
+import { useState } from 'react'
 import { fmtN, severityClass } from '../../utils'
 import { TcBadge } from '../shared/TcBadge'
 import { Panel } from '../shared/Panel'
 import { Badge } from '../shared/Badge'
 import { ThreatIntelPanel } from '../overview/ThreatIntelPanel'
-import type { TunnelData, ThreatHistoryPoint } from '../../types'
+import type { TunnelData, ThreatHistoryPoint, ThreatLibraryEntry } from '../../types'
 
 // ── 24h summary strip ─────────────────────────────────────────────────────────
 function ThreatStrip({ history, wafHighCount }: { history: ThreatHistoryPoint[]; wafHighCount: number }) {
@@ -131,9 +132,70 @@ function TopOffenders({ history }: { history: ThreatHistoryPoint[] }) {
   )
 }
 
+// ── Persistent threat library ─────────────────────────────────────────────────
+function ThreatLibrary({ library }: { library: ThreatLibraryEntry[] }) {
+  const [sortBy, setSortBy] = useState<'last_seen' | 'total_hits' | 'severity'>('last_seen')
+
+  if (!library.length) {
+    return <div className="no-data" style={{ padding: '20px 0' }}>No IPs recorded yet — library builds after first threat activity.</div>
+  }
+
+  const sevOrder = { high: 0, medium: 1, low: 2 }
+  const sorted = [...library].sort((a, b) => {
+    if (sortBy === 'total_hits') return (b.total_hits_alltime ?? 0) - (a.total_hits_alltime ?? 0)
+    if (sortBy === 'severity') return (sevOrder[a.severity_peak] ?? 2) - (sevOrder[b.severity_peak] ?? 2)
+    return new Date(b.last_seen ?? 0).getTime() - new Date(a.last_seen ?? 0).getTime()
+  })
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 6, padding: '8px 16px', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 9, color: 'var(--dim)' }}>Sort:</span>
+        {(['last_seen', 'total_hits', 'severity'] as const).map(s => (
+          <button key={s} className="rbtn" style={{ opacity: sortBy === s ? 1 : 0.5 }} onClick={() => setSortBy(s)}>
+            {s === 'last_seen' ? 'Recent' : s === 'total_hits' ? 'Hits' : 'Severity'}
+          </button>
+        ))}
+        <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--dim)' }}>{library.length} IPs tracked</span>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="th-offenders-table">
+          <thead>
+            <tr><th>IP</th><th>Country</th><th>Total Hits</th><th>Severity</th><th>Classes</th><th>First Seen</th><th>Last Seen</th><th>Sample Paths</th></tr>
+          </thead>
+          <tbody>
+            {sorted.map(e => (
+              <tr key={e.ip}>
+                <td style={{ fontFamily: 'monospace', fontSize: 10 }}>{e.ip}</td>
+                <td style={{ fontSize: 10 }}>{(e.countries ?? []).join(', ') || '—'}</td>
+                <td style={{ fontWeight: 700, color: 'var(--orange)' }}>{fmtN(e.total_hits_alltime ?? 0)}</td>
+                <td className={severityClass(e.severity_peak)}>{e.severity_peak}</td>
+                <td>{(e.threat_classes ?? []).map(c => <TcBadge key={c} cls={c} />)}</td>
+                <td style={{ fontSize: 9, color: 'var(--dim)', whiteSpace: 'nowrap' }}>
+                  {e.first_seen ? new Date(e.first_seen).toLocaleDateString() : '—'}
+                </td>
+                <td style={{ fontSize: 9, color: 'var(--dim)', whiteSpace: 'nowrap' }}>
+                  {e.last_seen ? new Date(e.last_seen).toLocaleString() : '—'}
+                </td>
+                <td style={{ maxWidth: 160 }}>
+                  {(e.sample_paths ?? []).slice(0, 3).map(p => <code key={p} style={{ display: 'block', fontSize: 9, opacity: .8 }}>{p}</code>)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
+type ThreatTab = '24h' | 'library'
+
 // ── Main ThreatMode component ─────────────────────────────────────────────────
 export function ThreatMode({ data }: { data: TunnelData }) {
+  const [tab, setTab] = useState<ThreatTab>('24h')
   const history = data.threat_history ?? []
+  const library = data.threat_library ?? []
   const wafHighCount = (data.waf_candidates ?? []).filter(c => c.severity === 'high').length
   const snapCount = history.length
 
@@ -141,35 +203,53 @@ export function ThreatMode({ data }: { data: TunnelData }) {
     <div>
       <ThreatStrip history={history} wafHighCount={wafHighCount} />
 
-      <div className="b-grid" style={{ marginTop: 0 }}>
-        {/* LEFT: trend + top offenders */}
-        <div className="col">
-          <Panel
-            title="Threat Trend · 24h"
-            badge={<Badge color="muted">{snapCount} snapshot{snapCount !== 1 ? 's' : ''}</Badge>}
-          >
-            <ThreatTrend history={history} />
-          </Panel>
-
-          <Panel
-            title="Top Offenders · 24h"
-            badge={<Badge color="red">{Object.keys(history.flatMap(h => h.top_offenders ?? []).reduce((m, o) => { m[o.ip] = true; return m }, {} as Record<string, boolean>)).length} IPs</Badge>}
-          >
-            <TopOffenders history={history} />
-          </Panel>
-        </div>
-
-        {/* RIGHT: current hour detail */}
-        <div className="col">
-          <Panel title="Current Hour · Activity Log" badge={<Badge color="muted">Latest snapshot</Badge>}>
-            <ThreatIntelPanel
-              threatLog={data.threat_log ?? []}
-              threatSummary={data.threat_summary}
-              wafCandidates={data.waf_candidates ?? []}
-            />
-          </Panel>
+      <div style={{ display: 'flex', gap: 0, padding: '0 16px', borderBottom: '1px solid var(--border)', marginBottom: 0 }}>
+        <div className={`mtab${tab === '24h' ? ' active-threat' : ''}`} style={{ fontSize: 10, padding: '6px 14px' }} onClick={() => setTab('24h')}>24h Window</div>
+        <div className={`mtab${tab === 'library' ? ' active-threat' : ''}`} style={{ fontSize: 10, padding: '6px 14px' }} onClick={() => setTab('library')}>
+          Library {library.length > 0 && <Badge color="orange">{library.length}</Badge>}
         </div>
       </div>
+
+      {tab === '24h' && (
+        <div className="b-grid" style={{ marginTop: 0 }}>
+          <div className="col">
+            <Panel
+              title="Threat Trend · 24h"
+              badge={<Badge color="muted">{snapCount} snapshot{snapCount !== 1 ? 's' : ''}</Badge>}
+            >
+              <ThreatTrend history={history} />
+            </Panel>
+
+            <Panel
+              title="Top Offenders · 24h"
+              badge={<Badge color="red">{Object.keys(history.flatMap(h => h.top_offenders ?? []).reduce((m, o) => { m[o.ip] = true; return m }, {} as Record<string, boolean>)).length} IPs</Badge>}
+            >
+              <TopOffenders history={history} />
+            </Panel>
+          </div>
+
+          <div className="col">
+            <Panel title="Current Hour · Activity Log" badge={<Badge color="muted">Latest snapshot</Badge>}>
+              <ThreatIntelPanel
+                threatLog={data.threat_log ?? []}
+                threatSummary={data.threat_summary}
+                wafCandidates={data.waf_candidates ?? []}
+              />
+            </Panel>
+          </div>
+        </div>
+      )}
+
+      {tab === 'library' && (
+        <div style={{ padding: '0 0 24px' }}>
+          <Panel
+            title="Threat Library · All-Time IPs"
+            badge={<Badge color="orange">{library.length} known</Badge>}
+          >
+            <ThreatLibrary library={library} />
+          </Panel>
+        </div>
+      )}
     </div>
   )
 }
