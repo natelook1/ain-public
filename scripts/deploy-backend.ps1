@@ -1,13 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Push local Backend/ + docker-swarm-stack.yml to ain-backend and apply.
+    Deploy Backend changes to ain-backend: git pull + docker compose build/up.
 
 .DESCRIPTION
-    1. rsync Backend/ain-api/, Backend/sse-server/, docker-swarm-stack.yml (as compose.yml)
-    2. docker compose build for the target services
-    3. docker compose up -d --no-deps
-    4. Print container status and ain-api startup logs
+    1. git pull on the remote repo
+    2. cp docker-swarm-stack.yml compose.yml
+    3. docker compose build for the target services
+    4. docker compose up -d --no-deps
+    5. Print container status and ain-api startup logs
 
 .PARAMETER RemoteHost
     SSH target. Default: administrator@192.168.30.57
@@ -39,7 +40,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ANSI colours (work in Windows Terminal / PS 7; degrade gracefully in PS 5.1)
 $ESC    = [char]27
 $GREEN  = "$ESC[32m"
 $RED    = "$ESC[31m"
@@ -85,61 +85,18 @@ if ($ping -ne 'ok') {
 Write-Ok 'SSH connected'
 
 # ---------------------------------------------------------------------------
-Write-Step 2 "Syncing files to ${RemoteHost}:${ComposePath} ..."
-
-$repoRoot = Split-Path $PSScriptRoot -Parent
-
-# local path -> remote path
-$syncItems = @(
-    [pscustomobject]@{ Local = 'Backend/ain-api';        Remote = "$ComposePath/Backend/ain-api" }
-    [pscustomobject]@{ Local = 'Backend/sse-server';     Remote = "$ComposePath/Backend/sse-server" }
-    # docker-swarm-stack.yml is the authoritative source; server expects compose.yml
-    [pscustomobject]@{ Local = 'docker-swarm-stack.yml'; Remote = "$ComposePath/compose.yml" }
-)
+Write-Step 2 'Pulling latest from GitHub...'
 
 if (-not $DryRun) {
-    Invoke-Remote "mkdir -p $ComposePath/Backend/ain-api $ComposePath/Backend/sse-server" | Out-Null
+    $out = Invoke-Remote "cd $ComposePath && git pull 2>&1"
+    Write-Host "  ${DIM}$out${NC}"
+    if ($LASTEXITCODE -ne 0) { Write-Err "git pull failed: $out" }
+    # keep compose.yml in sync with the authoritative stack file
+    Invoke-Remote "cp $ComposePath/docker-swarm-stack.yml $ComposePath/compose.yml" | Out-Null
+    Write-Ok 'Files synced'
+} else {
+    Write-Host "  ${YELLOW}DRY RUN -- would run: git pull && cp docker-swarm-stack.yml compose.yml${NC}"
 }
-
-foreach ($item in $syncItems) {
-    $localFull = Join-Path $repoRoot $item.Local
-    $isDir     = Test-Path $localFull -PathType Container
-
-    Write-Host "  ${DIM}scp $($item.Local) -> $($item.Remote)${NC}"
-
-    if (-not $DryRun) {
-        if ($isDir) {
-            # Pack locally with .NET zip (no rsync needed), upload, extract with tar on remote
-            $tmpZip    = [System.IO.Path]::GetTempFileName() + '.zip'
-            $remoteDir = $item.Remote
-            $remoteTmp = "$ComposePath/_deploy_tmp.zip"
-
-            Add-Type -AssemblyName 'System.IO.Compression.FileSystem'
-            if (Test-Path $tmpZip) { Remove-Item $tmpZip -Force }
-            $entries = Get-ChildItem $localFull -Recurse -File |
-                Where-Object { $_.FullName -notmatch '\\node_modules\\' -and $_.FullName -notmatch '\\.git\\' -and $_.Extension -ne '.log' }
-            $zip = [System.IO.Compression.ZipFile]::Open($tmpZip, 'Create')
-            foreach ($f in $entries) {
-                $rel = $f.FullName.Substring($localFull.Length).TrimStart('\').Replace('\','/')
-                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $f.FullName, $rel)
-            }
-            $zip.Dispose()
-
-            # Upload zip, unpack with python3 (always present), clean up
-            scp $tmpZip "${RemoteHost}:${remoteTmp}"
-            if ($LASTEXITCODE -ne 0) { Remove-Item $tmpZip -Force; Write-Err "scp zip failed for $($item.Local)" }
-            $pyUnzip = "python3 -c `"import zipfile,os; z=zipfile.ZipFile('$remoteTmp'); os.makedirs('$remoteDir',exist_ok=True); z.extractall('$remoteDir'); z.close(); os.remove('$remoteTmp')`""
-            Invoke-Remote $pyUnzip | Out-Null
-            if ($LASTEXITCODE -ne 0) { Remove-Item $tmpZip -Force; Write-Err "python unzip failed for $($item.Local)" }
-            Remove-Item $tmpZip -Force
-        } else {
-            # single file -- scp directly
-            scp $localFull "${RemoteHost}:$($item.Remote)"
-            if ($LASTEXITCODE -ne 0) { Write-Err "scp failed for $($item.Local)" }
-        }
-    }
-}
-Write-Ok 'Files synced'
 
 # ---------------------------------------------------------------------------
 Write-Step 3 'Validating compose file on remote...'
@@ -157,11 +114,11 @@ Write-Step 4 "Building images ($svcString)..."
 
 if (-not $SkipBuild) {
     if (-not $DryRun) {
-        $out = Invoke-Remote "cd $ComposePath && docker compose -f compose.yml build --pull $svcString 2>&1"
+        $out = Invoke-Remote "cd $ComposePath && docker compose -f compose.yml build $svcString 2>&1"
         if ($LASTEXITCODE -ne 0) { Write-Err "docker compose build failed: $out" }
         Write-Ok 'Images built'
     } else {
-        Write-Host "  ${YELLOW}DRY RUN -- would run: docker compose build --pull $svcString${NC}"
+        Write-Host "  ${YELLOW}DRY RUN -- would run: docker compose build $svcString${NC}"
     }
 } else {
     Write-Host "  ${DIM}Skipped (--SkipBuild)${NC}"
