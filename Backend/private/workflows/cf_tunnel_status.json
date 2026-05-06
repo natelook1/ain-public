@@ -6,18 +6,18 @@
           "interval": [
             {
               "field": "minutes",
-              "minutesInterval": 1
+              "minutesInterval": 2
             }
           ]
         }
       },
-      "id": "1fafbb8a-9ec6-4826-bed5-895c86149c0b",
+      "id": "a2e94b92-be96-4ff5-a665-78fe5ab5f347",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        2128,
-        -432
+        -64,
+        -352
       ]
     },
     {
@@ -34,26 +34,28 @@
         },
         "options": {}
       },
-      "id": "71d9dc0d-c736-4b6a-b43c-d9fe12a561d3",
+      "id": "4055b944-ca97-42cf-86d9-63076d49724d",
       "name": "Get Tunnels",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2368,
-        -592
-      ]
+        176,
+        -352
+      ],
+      "alwaysOutputData": false,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "jsCode": "const body = $input.first().json;\nconst tunnels = body.result || [];\nreturn tunnels.map(tunnel => ({\n  json: {\n    tunnel_id: tunnel.id,\n    tunnel_name: tunnel.name,\n    status: tunnel.status,\n    created_at: tunnel.created_at,\n    conns_active_at: tunnel.conns_active_at,\n    conns_inactive_at: tunnel.conns_inactive_at\n  }\n}));"
       },
-      "id": "5d6fe09d-f744-471b-a7f4-da850120603f",
+      "id": "a713d1ae-13c8-49f2-9425-3beeff8920bb",
       "name": "Extract Tunnels",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2608,
-        -592
+        416,
+        -352
       ]
     },
     {
@@ -70,114 +72,179 @@
         },
         "options": {}
       },
-      "id": "2e4229ec-1b78-43cb-9f3b-f1e56f8e212e",
+      "id": "c10b5a06-057b-43f7-bf76-0c82eb3bda31",
       "name": "Get Connections",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2832,
-        -592
+        640,
+        -352
       ]
     },
     {
       "parameters": {
         "jsCode": "const items = $input.all();\nreturn items.map((item, index) => {\n  const connections = item.json.result || [];\n  const tunnelMeta = $('Extract Tunnels').all()[index]?.json || {};\n  return {\n    json: {\n      tunnel_id: tunnelMeta.tunnel_id,\n      tunnel_name: tunnelMeta.tunnel_name,\n      status: tunnelMeta.status,\n      created_at: tunnelMeta.created_at,\n      conns_active_at: tunnelMeta.conns_active_at,\n      conns_inactive_at: tunnelMeta.conns_inactive_at,\n      connector_count: connections.length,\n      connectors: connections.map(c => ({\n        id: c.id,\n        client_id: c.client_id,\n        client_version: c.client_version,\n        colo_name: c.colo_name,\n        colo_region: c.colo_region,\n        opened_at: c.opened_at,\n        is_pending_reconnect: c.is_pending_reconnect,\n        arch: c.arch,\n        os: c.os\n      }))\n    }\n  };\n});"
       },
-      "id": "7d2aa708-2e07-4372-b9d7-dc633a752951",
+      "id": "31954833-6509-4523-a47b-1510e4f63ff4",
       "name": "Merge Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3040,
-        -592
+        848,
+        -352
       ]
     },
     {
       "parameters": {
-        "url": "http://192.168.30.31:2000/metrics",
+        "url": "http://192.168.30.67:2000/metrics",
         "options": {
           "timeout": 3000
         }
       },
-      "id": "814195e3-d850-44c9-9a4d-565aa7e8284c",
+      "id": "2ef6a41c-e9a1-46ca-affa-a5beb3e41920",
       "name": "Scrape Node 1 Metrics",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2368,
-        -272
-      ]
+        176,
+        -192
+      ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "url": "http://192.168.30.32:2000/metrics",
+        "url": "http://192.168.30.68:2000/metrics",
         "options": {
           "timeout": 3000
         }
       },
-      "id": "c62514db-1840-465e-8e48-04d36ee9b997",
+      "id": "53469aa0-48bb-42df-8c95-802e3a4ee45d",
       "name": "Scrape Node 2 Metrics",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2368,
-        -80
+        176,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.30.69:2000/metrics",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "id": "89f06b36-3608-4abc-b6c1-22948772b4ce",
+      "name": "Scrape Node 3 Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        176,
+        192
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.cloudflare.com/client/v4/graphql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer W3l76lvab_YP3khlM5zKJREBmYmNLTtF2wJQAAeh"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n  { \n    \"query\": \"query($zoneTag: String!, $start: String!) { viewer { zones(filter: {zoneTag: $zoneTag}) { httpRequestsAdaptiveGroups(limit: 500, filter: {datetime_geq: $start, edgeResponseStatus_geq: 400}, orderBy: [count_DESC]) { count dimensions { datetimeFiveMinutes clientIP edgeResponseStatus clientRequestHTTPHost clientRequestPath clientRequestHTTPMethodName userAgent clientCountryName } } } } }\",\n    \"variables\": {\n      \"zoneTag\": \"4911b8a24393d8397d4c4abb5ecff967\",\n      \"start\": $now.minus({ hours: 1 }).toISO()\n    }\n  }\n}}",
+        "options": {}
+      },
+      "id": "0ea6292d-f651-403b-a724-7f4daf5dd87c",
+      "name": "Fetch Error Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        176,
+        384
       ]
     },
     {
       "parameters": {
         "mode": "combine",
         "combineBy": "combineByPosition",
+        "numberInputs": 3,
         "options": {}
       },
-      "id": "95b8ec7c-c1e4-4e77-9516-b22872578ec5",
+      "id": "99ece4f0-dc1a-4813-8552-e18c41c4da9e",
       "name": "Merge Scrapes",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        2608,
-        -272
+        416,
+        -192
       ]
     },
     {
       "parameters": {
-        "jsCode": "function parsePrometheus(text) {\n    const result = {};\n    if (!text || typeof text !== 'string') return result;\n    const lines = text.split('\\n');\n    for (const line of lines) {\n        const trimmed = line.trim();\n        if (!trimmed || trimmed.startsWith('#')) continue;\n        const match = trimmed.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\\{([^}]*)\\})?\\s+([\\d.eE+\\-]+|NaN|Inf|-Inf)/);\n        if (!match) continue;\n        const [, name, labelStr, valueStr] = match;\n        const value = parseFloat(valueStr);\n        if (!result[name]) result[name] = [];\n        const labels = {};\n        if (labelStr) {\n            const labelPairs = labelStr.match(/([a-zA-Z_][a-zA-Z0-9_]*)=\"([^\"]*)\"/g) || [];\n            for (const pair of labelPairs) {\n                const eqIdx = pair.indexOf('=');\n                const k = pair.substring(0, eqIdx);\n                const v = pair.substring(eqIdx + 1).replace(/\"/g, '');\n                labels[k] = v;\n            }\n        }\n        result[name].push({ labels, value });\n    }\n    return result;\n}\n\nfunction extractNodeMetrics(metrics, nodeIp) {\n    const totalReqs = (metrics['cloudflared_tunnel_total_requests'] || []).reduce((s, m) => s + m.value, 0);\n    const activeStreams = (metrics['cloudflared_tunnel_active_streams'] || []).reduce((s, m) => s + m.value, 0);\n    const responseCodes = {};\n    (metrics['cloudflared_tunnel_response_by_code'] || []).forEach(m => {\n        const code = m.labels.status_code || m.labels.code || 'unknown';\n        responseCodes[code] = (responseCodes[code] || 0) + m.value;\n    });\n    const total2xx = Object.entries(responseCodes).filter(([k]) => k.startsWith('2')).reduce((s, [, v]) => s + v, 0);\n    const totalResponses = Object.values(responseCodes).reduce((s, v) => s + v, 0);\n    const successRate = totalResponses > 0 ? Math.round((total2xx / totalResponses) * 100) : null;\n    \n    // Look for connection_id OR connector_id in the Prometheus labels\n    const connIds = [...new Set([\n        ...(metrics['cloudflared_tunnel_total_requests'] || []).map(m => m.labels.connection_id || m.labels.connector_id).filter(Boolean),\n        ...(metrics['cloudflared_tunnel_active_streams'] || []).map(m => m.labels.connection_id || m.labels.connector_id).filter(Boolean)\n    ])];\n    \n    const perConnection = {};\n    (metrics['cloudflared_tunnel_total_requests'] || []).forEach(m => {\n        const cid = m.labels.connection_id || m.labels.connector_id;\n        if (cid) perConnection[cid] = (perConnection[cid] || 0) + m.value;\n    });\n    \n    return {\n        node_ip: nodeIp,\n        total_requests: Math.round(totalReqs),\n        active_streams: Math.round(activeStreams),\n        response_codes: responseCodes,\n        success_rate: successRate,\n        connection_ids: connIds,\n        per_connection_requests: perConnection,\n        raw_metric_count: Object.keys(metrics).length\n    };\n}\n\n// Safely fetch previous nodes without throwing proxy errors\nlet node1Raw = null;\nlet node2Raw = null;\ntry { node1Raw = $('Scrape Node 1 Metrics').first()?.json || null; } catch (e) {}\ntry { node2Raw = $('Scrape Node 2 Metrics').first()?.json || null; } catch (e) {}\n\nconst node1Text = typeof node1Raw === 'string' ? node1Raw : (node1Raw?.data || JSON.stringify(node1Raw || {}));\nconst node2Text = typeof node2Raw === 'string' ? node2Raw : (node2Raw?.data || JSON.stringify(node2Raw || {}));\n\nconst node1 = extractNodeMetrics(parsePrometheus(node1Text), '192.168.30.31');\nconst node2 = extractNodeMetrics(parsePrometheus(node2Text), '192.168.30.32');\n\nconst totalRequests = node1.total_requests + node2.total_requests;\nconst node1Pct = totalRequests > 0 ? Math.round((node1.total_requests / totalRequests) * 100) : 50;\nconst node2Pct = totalRequests > 0 ? 100 - node1Pct : 50;\n\nreturn [{\n    json: {\n        nodes: [\n            { ...node1, load_pct: node1Pct },\n            { ...node2, load_pct: node2Pct }\n        ],\n        total_requests: totalRequests,\n        total_active_streams: node1.active_streams + node2.active_streams,\n        load_balance: {\n            node1_ip: '192.168.30.31',\n            node1_pct: node1Pct,\n            node2_ip: '192.168.30.32',\n            node2_pct: node2Pct,\n            is_balanced: Math.abs(node1Pct - node2Pct) <= 20\n        },\n        scraped_at: new Date().toISOString()\n    }\n}];"
+        "jsCode": "function parsePrometheus(text) {\n    const result = {};\n    const rawText = (typeof text === 'object' && text !== null && text.data) ? text.data : text;\n    if (!rawText || typeof rawText !== 'string') return result;\n    for (const line of rawText.split('\\n')) {\n        const trimmed = line.trim();\n        if (!trimmed || trimmed.startsWith('#')) continue;\n        const match = trimmed.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\\{([^}]*)\\})?\\s+([\\d.eE+\\-]+|NaN|Inf|-Inf)/);\n        if (!match) continue;\n        const [, name, labelStr, valueStr] = match;\n        const value = parseFloat(valueStr);\n        const labels = {};\n        if (labelStr) {\n            const labelPattern = /([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*\"([^\"]*)\"/g;\n            let labelMatch;\n            while ((labelMatch = labelPattern.exec(labelStr)) !== null) {\n                labels[labelMatch[1]] = labelMatch[2];\n            }\n        }\n        if (!result[name]) result[name] = [];\n        result[name].push({ labels, value });\n    }\n    return result;\n}\n\nfunction extractAll(metrics, nodeIp) {\n    const get = (name) => metrics[name] || [];\n    const sum = (name) => get(name).reduce((s, m) => s + m.value, 0);\n    const first = (name) => get(name)[0]?.value ?? null;\n    const findLabel = (name, labelKey, labelVal) => get(name).find(m => m.labels[labelKey] === labelVal);\n    const byLabel = (name, labelKey, labelVal) => get(name).filter(m => m.labels[labelKey] === labelVal);\n\n    // Node Health Check: If no metrics returned, mark as offline\n    if (Object.keys(metrics).length === 0) {\n        return { \n            node_ip: nodeIp, \n            status: 'offline', \n            total_requests: 0, \n            active_streams: 0, \n            protocol: 'unknown',\n            quic_connections: [] \n        };\n    }\n\n    // Parse Response Codes\n    const response_codes = {};\n    get('cloudflared_tunnel_response_by_code').forEach(m => {\n        const code = m.labels.status_code || m.labels.code || 'unknown';\n        response_codes[code] = (response_codes[code] || 0) + m.value;\n    });\n    const totalResp = Object.values(response_codes).reduce((s, v) => s + v, 0);\n    const total2xx = Object.entries(response_codes).filter(([k]) => k.startsWith('2') || k.startsWith('3')).reduce((s, [, v]) => s + v, 0);\n\n    // Extract Connection IDs\n    const connIds = [...new Set([\n        ...get('cloudflared_tunnel_total_requests').map(m => m.labels.connection_id || m.labels.connector_id).filter(Boolean),\n        ...get('cloudflared_tunnel_active_streams').map(m => m.labels.connection_id || m.labels.connector_id).filter(Boolean),\n        ...get('cloudflared_tunnel_server_locations').map(m => m.labels.connection_id).filter(Boolean)\n    ])];\n\n    // QUIC specific data extraction\n    const connIndexSet = new Set();\n    Object.keys(metrics).filter(k => k.startsWith('quic_client_')).forEach(k => {\n        get(k).forEach(m => { \n            const idx = m.labels.conn_index ?? m.labels.connection_id;\n            if (idx != null) connIndexSet.add(idx); \n        });\n    });\n\n    const quic_connections = [...connIndexSet].sort().map(idx => {\n        const findQuic = (name) => get(name).find(m => m.labels.conn_index === idx || m.labels.connection_id === idx)?.value ?? null;\n        const lostPkts = get('quic_client_lost_packets')\n            .filter(m => m.labels.conn_index === idx || m.labels.connection_id === idx)\n            .map(m => ({ reason: m.labels.reason, count: m.value }));\n        const locEntry = findLabel('cloudflared_tunnel_server_locations', 'connection_id', idx);\n        const edge_location = locEntry ? locEntry.labels.edge_location : null;\n\n        return {\n            conn_index: idx,\n            edge_location,\n            latest_rtt:        findQuic('quic_client_latest_rtt'),\n            min_rtt:           findQuic('quic_client_min_rtt'),\n            smoothed_rtt:      findQuic('quic_client_smoothed_rtt'),\n            congestion_state:  findQuic('quic_client_congestion_state'),\n            congestion_window: findQuic('quic_client_congestion_window'),\n            sent_bytes:        findQuic('quic_client_sent_bytes'),\n            receive_bytes:     findQuic('quic_client_receive_bytes'),\n            lost_packets:      lostPkts,\n        };\n    });\n\n    // Determine current protocol\n    const protocolEntry = get('cloudflared_tunnel_protocol')[0];\n    const protocol = protocolEntry ? protocolEntry.labels.protocol : (quic_connections.length > 0 ? 'quic' : 'http2');\n\n    // Build Info\n    const build = get('build_info')[0]?.labels || {};\n\n    // RPC Operations\n    const rpcMethodSet = new Set(get('cloudflared_rpc_client_operations').map(m => m.labels.method));\n    const rpc_operations = [...rpcMethodSet].map(method => {\n        const ops      = byLabel('cloudflared_rpc_client_operations', 'method', method).reduce((s, m) => s + m.value, 0);\n        const failures = byLabel('cloudflared_rpc_client_failures',   'method', method).reduce((s, m) => s + m.value, 0);\n        const latSum   = byLabel('cloudflared_rpc_client_latency_secs_sum',   'method', method).reduce((s, m) => s + m.value, 0);\n        const latCount = byLabel('cloudflared_rpc_client_latency_secs_count', 'method', method).reduce((s, m) => s + m.value, 0);\n        return {\n            method,\n            count:       ops,\n            failures,\n            latency_avg: latCount > 0 ? latSum / latCount : null,\n        };\n    });\n\n    // Memory and GC Metrics\n    const gcP50 = get('go_gc_duration_seconds').find(m => m.labels.quantile === '0.5')?.value ?? null;\n    const gcCount = get('go_gc_duration_seconds_count')[0]?.value ?? null;\n\n    return {\n        node_ip:              nodeIp,\n        status:               'online',\n        protocol:             protocol,\n        version:              build.version,\n        goversion:            build.goversion,\n        connection_ids:       connIds, \n        total_requests:       Math.round(sum('cloudflared_tunnel_total_requests')),\n        active_streams:       Math.round(first('cloudflared_tunnel_concurrent_requests_per_tunnel') ?? 0),\n        ha_connections:       first('cloudflared_tunnel_ha_connections'),\n        concurrent_requests:  first('cloudflared_tunnel_concurrent_requests_per_tunnel'),\n        request_errors:       Math.round(sum('cloudflared_tunnel_request_errors')),\n        tcp_total_sessions:   Math.round(sum('cloudflared_tcp_total_sessions')),\n        tcp_active_sessions:  first('cloudflared_tcp_active_sessions'),\n        config_pushes:        Math.round(sum('cloudflared_config_local_config_pushes')),\n        config_push_errors:   Math.round(sum('cloudflared_config_local_config_pushes_errors')),\n        register_success:     Math.round(sum('cloudflared_tunnel_tunnel_register_success')),\n        response_codes,\n        success_rate:         totalResp > 0 ? parseFloat(((total2xx / totalResp) * 100).toFixed(2)) : null,\n        quic_connections,\n        quic_total_connections: first('quic_client_total_connections'),\n        quic_closed_connections: first('quic_client_closed_connections'),\n        server_locations:     get('cloudflared_tunnel_server_locations').filter(m => m.value === 1).map(m => ({ id: m.labels.connection_id, loc: m.labels.edge_location })),\n        rpc_operations,\n        goroutines:           first('go_goroutines'),\n        threads:              first('go_threads'),\n        gc_count:             gcCount != null ? Math.round(gcCount) : null,\n        gc_pause_ms:          gcP50 != null ? gcP50 * 1000 : null,\n        heap_alloc_bytes:     first('go_memstats_alloc_bytes'),\n        heap_inuse_bytes:     first('go_memstats_heap_inuse_bytes'),\n        heap_sys_bytes:       first('go_memstats_heap_sys_bytes'),\n        resident_memory_bytes: first('process_resident_memory_bytes'),\n        virtual_memory_bytes: first('process_virtual_memory_bytes'),\n        cpu_seconds_total:    first('process_cpu_seconds_total'),\n        open_fds:             first('process_open_fds'),\n        max_fds:              first('process_max_fds'),\n        network_rx_bytes:     first('process_network_receive_bytes_total'),\n        network_tx_bytes:     first('process_network_transmit_bytes_total'),\n        process_start_time:   first('process_start_time_seconds'),\n        gomaxprocs:           first('go_sched_gomaxprocs_threads'),\n        raw_metric_count:     Object.keys(metrics).length,\n    };\n}\n\nlet n1Raw = null, n2Raw = null, n3Raw = null;\ntry { n1Raw = $('Scrape Node 1 Metrics').first()?.json || null; } catch(e) {}\ntry { n2Raw = $('Scrape Node 2 Metrics').first()?.json || null; } catch(e) {}\ntry { n3Raw = $('Scrape Node 3 Metrics').first()?.json || null; } catch(e) {}\n\nconst t1 = typeof n1Raw === 'string' ? n1Raw : (n1Raw?.data || JSON.stringify(n1Raw || {}));\nconst t2 = typeof n2Raw === 'string' ? n2Raw : (n2Raw?.data || JSON.stringify(n2Raw || {}));\nconst t3 = typeof n3Raw === 'string' ? n3Raw : (n3Raw?.data || JSON.stringify(n3Raw || {}));\n\nconst node1 = extractAll(parsePrometheus(t1), '192.168.30.67');\nconst node2 = extractAll(parsePrometheus(t2), '192.168.30.68');\nconst node3 = extractAll(parsePrometheus(t3), '192.168.30.69');\n\nconst totalReqs = (node1.total_requests || 0) + (node2.total_requests || 0) + (node3.total_requests || 0);\n\nconst n1pct = totalReqs > 0 ? Math.round(((node1.total_requests || 0) / totalReqs) * 100) : 0;\nconst n2pct = totalReqs > 0 ? Math.round(((node2.total_requests || 0) / totalReqs) * 100) : 0;\nconst n3pct = totalReqs > 0 ? Math.max(0, 100 - (n1pct + n2pct)) : 0;\n\nreturn [{\n    json: {\n        nodes: [\n            { ...node1, load_pct: n1pct },\n            { ...node2, load_pct: n2pct },\n            { ...node3, load_pct: n3pct },\n        ],\n        total_requests:       totalReqs,\n        total_active_streams: (node1.active_streams || 0) + (node2.active_streams || 0) + (node3.active_streams || 0),\n        load_balance: {\n            node1_ip:    '192.168.30.67',\n            node1_pct:   n1pct,\n            node2_ip:    '192.168.30.68',\n            node2_pct:   n2pct,\n            node3_ip:    '192.168.30.69',\n            node3_pct:   n3pct,\n            is_balanced: totalReqs === 0 || (Math.abs(n1pct - 33) <= 25 && Math.abs(n2pct - 33) <= 25),\n        },\n        scraped_at: new Date().toISOString(),\n    }\n}];"
       },
-      "id": "2a039c86-535e-47f1-98ed-ab37f9e26272",
+      "id": "b2e33672-e71c-4f9b-98c5-fb8cbdff9312",
       "name": "Parse Prometheus Metrics",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2832,
-        -272
+        640,
+        -192
       ]
     },
     {
       "parameters": {
         "mode": "combine",
         "combineBy": "combineByPosition",
+        "numberInputs": 3,
         "options": {}
       },
-      "id": "ff091293-0f59-4112-a9af-1251566cc2ff",
+      "id": "cc611c6a-2c1c-49c0-8cda-5ce3520c419b",
       "name": "Merge Final",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        3264,
-        -432
+        1072,
+        -336
       ]
     },
     {
       "parameters": {
-        "jsCode": "const Redis = require('ioredis');\n\nconst REDIS_CONFIG = {\n    host: 'redis',\n    port: 6379,\n    db: 0,\n    connectTimeout: 2000,\n    maxRetriesPerRequest: 1\n};\n\nlet tunnels = [];\ntry {\n    tunnels = $('Merge Data').all().map(item => item.json);\n} catch (e) {}\n\nlet metricsData = {};\ntry {\n    metricsData = $('Parse Prometheus Metrics').first()?.json || {};\n} catch (e) {\n    console.error(\"Metrics data unavailable:\", e.message);\n}\n\nconst totalConnectors = tunnels.reduce((s, t) => s + (t.connector_count || 0), 0);\n\nconst enrichedTunnels = tunnels.map(tunnel => ({\n    ...tunnel,\n    connectors: (tunnel.connectors || []).map((connector, index) => {\n        let matchingNode = (metricsData.nodes || []).find(n =>\n            (n.connection_ids || []).includes(connector.client_id) ||\n            (n.connection_ids || []).includes(connector.id)\n        );\n        \n        // Fallback: If cloudflared doesn't expose IDs, sequentially map node metrics to connectors\n        if (!matchingNode && metricsData.nodes && metricsData.nodes[index]) {\n            matchingNode = metricsData.nodes[index];\n        }\n\n        return {\n            ...connector,\n            metrics: matchingNode ? {\n                node_ip: matchingNode.node_ip,\n                total_requests: matchingNode.total_requests,\n                active_streams: matchingNode.active_streams,\n                load_pct: matchingNode.load_pct,\n                success_rate: matchingNode.success_rate,\n                response_codes: matchingNode.response_codes\n            } : null\n        };\n    })\n}));\n\nconst payload = {\n    summary: {\n        total_tunnels: tunnels.length,\n        healthy: tunnels.filter(t => t.status === 'healthy').length,\n        degraded: tunnels.filter(t => t.status === 'degraded').length,\n        down: tunnels.filter(t => t.status === 'inactive').length,\n        total_connectors: totalConnectors,\n        total_requests: metricsData.total_requests || 0,\n        total_active_streams: metricsData.total_active_streams || 0\n    },\n    tunnels: enrichedTunnels,\n    load_balance: metricsData.load_balance || null,\n    nodes: metricsData.nodes || [],\n    fetched_at: new Date().toISOString()\n};\n\nconst redis = new Redis(REDIS_CONFIG);\n\nreturn (async () => {\n    try {\n        await redis.set('cf:tunnel:status', JSON.stringify(payload), 'EX', 120);\n        return [{ json: { success: true, cached_at: payload.fetched_at, tunnel_count: tunnels.length, connector_count: totalConnectors, total_requests: metricsData.total_requests || 0 } }];\n    } catch(e) {\n        return [{ json: { success: false, error: e.message } }];\n    } finally {\n        await redis.quit(); \n    }\n})();"
+        "jsCode": "const INTERNAL_IPS = new Set(['185.153.179.155','192.168.30.1','192.168.30.67','192.168.30.68','192.168.30.69']);\nconst CRAWLER_UAS = ['python-requests','python-urllib','go-http-client','curl/','wget/','httpx','httpie','libwww','nmap','nikto','masscan','zgrab','nuclei','scrapy','crawler','spider','bot/','dataprovider','semrushbot','ahrefsbot','mj12bot','dotbot','petalbot','wpscanner','sqlmap'];\nconst PROBE_PATHS = ['/.env','/.git','/wp-admin','/wp-login','/phpmyadmin','/admin','/config','/.well-known/security','/actuator','/manager/html','/cgi-bin','/xmlrpc.php','/api/v1/auth','/console','/setup.php','/install','/.DS_Store','/etc/passwd','/proc/self','/vendor/','/composer','/package.json','/server-status','/.aws/','/backup','/db/','/database','/sql','/dump','/telescope','/horizon','/api-docs','/swagger'];\nconst AUTH_PATHS = ['/login','/auth','/token','/signin','/api/auth','/wp-login','/admin','/user/login','/account/login'];\n\nfunction classify(d) {\n    const ua   = (d.userAgent || '').toLowerCase();\n    const path = (d.clientRequestPath || '').toLowerCase();\n    const st   = d.edgeResponseStatus || 0;\n    const isCrawlerUa  = CRAWLER_UAS.some(s => ua.includes(s));\n    const isProbePath  = PROBE_PATHS.some(p => path.startsWith(p) || path.includes(p));\n    const isAuthPath   = AUTH_PATHS.some(p => path.includes(p));\n    const isAuthError  = st === 401 || st === 403;\n    if (isCrawlerUa && isProbePath)        return 'crawler-probe';\n    if (isAuthPath && isAuthError)         return 'brute-force';\n    if (isProbePath)                       return 'probe';\n    if (isCrawlerUa)                       return 'crawler';\n    return 'anomaly';\n}\n\nconst gqlRaw = $('Fetch Error Analytics').first()?.json || null;\nconst raw = (gqlRaw?.data?.viewer?.zones?.[0]?.httpRequestsAdaptiveGroups || [])\n    .filter(entry => !INTERNAL_IPS.has(entry.dimensions?.clientIP || ''));\n\nconst enriched = raw.map(entry => {\n    const d = entry.dimensions || {};\n    const threat_class = classify(d);\n    const severity = (threat_class === 'scanner' || threat_class === 'brute-force') ? 'high'\n        : (threat_class === 'probe' || threat_class === 'crawler-probe') ? 'medium' : 'low';\n    return {\n        count: entry.count,\n        ip:      d.clientIP || '',\n        country: d.clientCountryName || '',\n        host:    d.clientRequestHTTPHost || '',\n        path:    d.clientRequestPath || '',\n        method:  d.clientRequestHTTPMethodName || '',\n        ua:      d.userAgent || '',\n        status:  d.edgeResponseStatus || 0,\n        bucket:  d.datetimeFiveMinutes || null,\n        threat_class,\n        severity\n    };\n});\n\nconst byIp = {};\nenriched.forEach(e => {\n    if (!byIp[e.ip]) byIp[e.ip] = { ip: e.ip, country: e.country, total: 0, classes: new Set(), paths: new Set(), uas: new Set(), severity: 'low' };\n    byIp[e.ip].total += e.count;\n    byIp[e.ip].classes.add(e.threat_class);\n    byIp[e.ip].paths.add(e.path);\n    if (e.ua) byIp[e.ip].uas.add(e.ua);\n    if (e.severity === 'high') byIp[e.ip].severity = 'high';\n    else if (e.severity === 'medium' && byIp[e.ip].severity !== 'high') byIp[e.ip].severity = 'medium';\n});\n\nconst INTERNAL_PATH_PREFIXES = ['/healthz','/rest/','/webhook/','/types/','/workflows/','/status/','/assets/'];\nconst waf_candidates = Object.values(byIp)\n    .filter(e => {\n        if (e.severity !== 'high' && e.total < 10) return false;\n        const allInternal = [...e.paths].every(p => INTERNAL_PATH_PREFIXES.some(pfx => p.startsWith(pfx)));\n        return !allInternal;\n    })\n    .sort((a, b) => b.total - a.total)\n    .slice(0, 20)\n    .map(e => ({\n        ip:             e.ip,\n        country:        e.country,\n        total_hits:     e.total,\n        threat_classes: [...e.classes],\n        severity:       e.severity,\n        sample_paths:   [...e.paths].slice(0, 5),\n        sample_uas:     [...e.uas].slice(0, 2),\n        waf_rule:       `(ip.src eq ${e.ip})`,\n        waf_action:     e.severity === 'high' ? 'block' : 'challenge'\n    }));\n\nconst threat_summary = {\n    total:        enriched.reduce((s, e) => s + e.count, 0),\n    unique_ips:   Object.keys(byIp).length,\n    scanners:     enriched.filter(e => e.threat_class === 'scanner').reduce((s,e) => s + e.count, 0),\n    probes:       enriched.filter(e => e.threat_class === 'probe' || e.threat_class === 'crawler-probe').reduce((s,e) => s + e.count, 0),\n    crawlers:     enriched.filter(e => e.threat_class === 'crawler').reduce((s,e) => s + e.count, 0),\n    brute_force:  enriched.filter(e => e.threat_class === 'brute-force').reduce((s,e) => s + e.count, 0),\n    anomalies:    enriched.filter(e => e.threat_class === 'anomaly').reduce((s,e) => s + e.count, 0),\n    high_severity: waf_candidates.filter(e => e.severity === 'high').length\n};\n\nreturn [{ json: { threat_log: enriched, threat_summary, waf_candidates } }];"
       },
-      "id": "bdf98995-b737-4af3-b99e-401a2296f51d",
+      "id": "f3a4b5c6-d7e8-9012-cdef-234567890abc",
+      "name": "Classify Threats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const Redis = require('ioredis');\n\nconst REDIS_CONFIG = {\n    host: 'redis',\n    port: 6379,\n    db: 0,\n    connectTimeout: 2000,\n    maxRetriesPerRequest: 1\n};\n\nlet tunnels = [];\ntry {\n    tunnels = $('Merge Data').all().map(item => item.json);\n} catch (e) {}\n\nlet metricsData = {};\ntry {\n    metricsData = $('Parse Prometheus Metrics').first()?.json || {};\n} catch (e) {\n    console.error(\"Metrics data unavailable:\", e.message);\n}\n\nlet threatData = {};\ntry {\n    threatData = $('Classify Threats').first()?.json || {};\n} catch (e) {\n    console.error(\"Threat data unavailable:\", e.message);\n}\n\nconst totalConnectors = tunnels.reduce((s, t) => s + (t.connector_count || 0), 0);\n\nconst total_rx = (metricsData.nodes || []).reduce((s,n) => s + (n.network_rx_bytes || 0), 0);\nconst total_tx = (metricsData.nodes || []).reduce((s,n) => s + (n.network_tx_bytes || 0), 0);\nconst total_errs = (metricsData.nodes || []).reduce((s,n) => s + (n.request_errors || 0), 0);\n\nconst total_response_codes = (metricsData.nodes || []).reduce((agg, n) => {\n    Object.entries(n.response_codes || {}).forEach(([k, v]) => {\n        agg[k] = (agg[k] || 0) + v;\n    });\n    return agg;\n}, {});\n\nconst enrichedTunnels = tunnels.map(tunnel => ({\n    ...tunnel,\n    connectors: (tunnel.connectors || []).map((connector, index) => {\n        let matchingNode = (metricsData.nodes || []).find(n =>\n            (n.connection_ids || []).includes(connector.client_id) ||\n            (n.connection_ids || []).includes(connector.id)\n        );\n        \n        if (!matchingNode && metricsData.nodes && metricsData.nodes[index]) {\n            matchingNode = metricsData.nodes[index];\n        }\n\n        return {\n            ...connector,\n            metrics: matchingNode ? {\n                node_ip: matchingNode.node_ip,\n                total_requests: matchingNode.total_requests,\n                active_streams: matchingNode.active_streams,\n                load_pct: matchingNode.load_pct,\n                success_rate: matchingNode.success_rate,\n                response_codes: matchingNode.response_codes\n            } : null\n        };\n    })\n}));\n\nconst payload = {\n    summary: {\n        total_tunnels: tunnels.length,\n        healthy: tunnels.filter(t => t.status === 'healthy').length,\n        degraded: tunnels.filter(t => t.status === 'degraded').length,\n        down: tunnels.filter(t => t.status === 'inactive').length,\n        total_connectors: totalConnectors,\n        total_requests: metricsData.total_requests || 0,\n        total_active_streams: metricsData.total_active_streams || 0,\n        total_rx_bytes: total_rx,\n        total_tx_bytes: total_tx,\n        total_proxy_errors: total_errs\n    },\n    tunnels: enrichedTunnels,\n    load_balance: metricsData.load_balance || null,\n    nodes: metricsData.nodes || [],\n    error_analytics: (() => { try { const g = $('Fetch Error Analytics').first()?.json; return g?.data?.viewer?.zones?.[0]?.httpRequestsAdaptiveGroups || []; } catch(e) { return []; } })(),\n    threat_log: threatData.threat_log || [],\n    threat_summary: threatData.threat_summary || null,\n    waf_candidates: threatData.waf_candidates || [],\n    fetched_at: new Date().toISOString()\n};\n\nconst redis = new Redis(REDIS_CONFIG);\n\nreturn (async () => {\n    try {\n        await redis.set('cf:tunnel:status', JSON.stringify(payload), 'EX', 120);\n\n        const historyPoint = {\n            time: payload.fetched_at,\n            requests: payload.summary.total_requests,\n            streams: payload.summary.total_active_streams,\n            errors: payload.summary.total_proxy_errors,\n            rx: payload.summary.total_rx_bytes,\n            tx: payload.summary.total_tx_bytes,\n            response_codes: total_response_codes\n        };\n        await redis.lpush('cf:tunnel:history', JSON.stringify(historyPoint));\n        await redis.ltrim('cf:tunnel:history', 0, 59);\n\n        // Persist rolling 24h threat history (720 entries at 2-min intervals)\n        const threatSummary = threatData.threat_summary || null;\n        if (threatSummary && threatSummary.total > 0) {\n            const topOffenders = (threatData.waf_candidates || [])\n                .slice(0, 10)\n                .map(e => ({\n                    ip:             e.ip,\n                    country:        e.country,\n                    total_hits:     e.total_hits,\n                    threat_classes: e.threat_classes,\n                    severity:       e.severity,\n                    sample_paths:   e.sample_paths\n                }));\n\n            const threatHistoryPoint = {\n                time:          payload.fetched_at,\n                summary:       threatSummary,\n                top_offenders: topOffenders\n            };\n            await redis.lpush('cf:tunnel:threat_history', JSON.stringify(threatHistoryPoint));\n            await redis.ltrim('cf:tunnel:threat_history', 0, 719);\n        }\n\n        return [{ json: { success: true, cached_at: payload.fetched_at, tunnel_count: tunnels.length, connector_count: totalConnectors, total_requests: metricsData.total_requests || 0 } }];\n    } catch(e) {\n        return [{ json: { success: false, error: e.message } }];\n    } finally {\n        await redis.quit();\n    }\n})();"
+      },
+      "id": "e1fe4bf9-b046-4f30-b691-b7e36f56d27f",
       "name": "Cache to Redis",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3488,
-        -432
+        1248,
+        -336
       ]
     },
     {
@@ -186,27 +253,27 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "7b5c393c-920f-412b-b0cd-a85b26e3150b",
+      "id": "ae8209af-18ac-45dc-981b-acec9df04cae",
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        2128,
-        80
+        528,
+        144
       ],
       "webhookId": "cloudflare-tunnel-status"
     },
     {
       "parameters": {
-        "jsCode": "const Redis = require('ioredis');\n\nconst REDIS_CONFIG = {\n    host: 'redis',\n    port: 6379,\n    db: 0,\n    connectTimeout: 2000,\n    maxRetriesPerRequest: 1\n};\n\nconst redis = new Redis(REDIS_CONFIG);\n\nreturn (async () => {\n    try {\n        const raw = await redis.get('cf:tunnel:status');\n        if (!raw) {\n            return [{ json: { error: 'No data cached yet.', fetched_at: null, summary: null, tunnels: [] } }];\n        }\n        return [{ json: JSON.parse(raw) }];\n    } catch(e) {\n        return [{ json: { error: e.message } }];\n    } finally {\n        await redis.quit(); \n    }\n})();"
+        "jsCode": "const Redis = require('ioredis');\n\nconst REDIS_CONFIG = {\n    host: 'redis',\n    port: 6379,\n    db: 0,\n    connectTimeout: 2000,\n    maxRetriesPerRequest: 1\n};\n\nconst redis = new Redis(REDIS_CONFIG);\n\nreturn (async () => {\n    try {\n        const raw = await redis.get('cf:tunnel:status');\n        if (!raw) {\n            return [{ json: { error: 'No data cached yet.', fetched_at: null, summary: null, tunnels: [] } }];\n        }\n\n        const [historyRaw, threatHistoryRaw] = await Promise.all([\n            redis.lrange('cf:tunnel:history', 0, -1),\n            redis.lrange('cf:tunnel:threat_history', 0, -1)\n        ]);\n\n        const history = historyRaw.map(h => JSON.parse(h)).reverse();\n        const threat_history = threatHistoryRaw.map(h => JSON.parse(h)).reverse();\n\n        const responseData = JSON.parse(raw);\n        responseData.history = history;\n        responseData.threat_history = threat_history;\n\n        return [{ json: responseData }];\n    } catch(e) {\n        return [{ json: { error: e.message } }];\n    } finally {\n        await redis.quit();\n    }\n})();"
       },
-      "id": "5d95da38-42e1-46d4-b1a3-b8953c75cd11",
+      "id": "c93512f8-964d-4ce4-8178-77aa8937e3d4",
       "name": "Read from Redis",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2368,
-        80
+        736,
+        144
       ]
     },
     {
@@ -229,13 +296,13 @@
           }
         }
       },
-      "id": "6b9b77f8-8807-4888-8288-4985a96372c5",
+      "id": "3dc87749-93a7-4dca-a1a7-5938b3f817fe",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        2608,
-        80
+        928,
+        144
       ]
     }
   ],
@@ -255,6 +322,16 @@
           },
           {
             "node": "Scrape Node 2 Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Scrape Node 3 Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Error Analytics",
             "type": "main",
             "index": 0
           }
@@ -327,6 +404,28 @@
         ]
       ]
     },
+    "Scrape Node 3 Metrics": {
+      "main": [
+        [
+          {
+            "node": "Merge Scrapes",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Fetch Error Analytics": {
+      "main": [
+        [
+          {
+            "node": "Merge Final",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
     "Merge Scrapes": {
       "main": [
         [
@@ -350,6 +449,17 @@
       ]
     },
     "Merge Final": {
+      "main": [
+        [
+          {
+            "node": "Classify Threats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Threats": {
       "main": [
         [
           {
@@ -385,7 +495,6 @@
   },
   "pinData": {},
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "98787c0fca7a3ca81891e76bb7000aeabfc8fd3dab3d3e9ba3040856941fbbfc"
+    "instanceId": "e4d9df6741c067cf2124440aba5e944d3dc90724d747ff5a42a4808aaa978722"
   }
 }
