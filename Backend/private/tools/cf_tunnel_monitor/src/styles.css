@@ -150,6 +150,7 @@ body.live-mode .brand h1 span { color: var(--green); }
   border-radius: 10px;
   overflow: hidden;
   margin-bottom: 16px;
+  min-width: 0;
 }
 
 .ph {
@@ -223,14 +224,16 @@ body.live-mode .brand h1 span { color: var(--green); }
 /* ── GRID LAYOUT ── */
 .b-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 16px;
   padding: 16px;
   max-width: 1600px;
   margin: 0 auto;
   min-width: 0;
+  width: 100%;
 }
-.col { display: flex; flex-direction: column; }
+.b-grid > * { min-width: 0; }
+.col { display: flex; flex-direction: column; min-width: 0; }
 
 /* ── DRIFT BANNER ── */
 .drift-banner {
@@ -488,7 +491,7 @@ footer {
 .rpc-row:last-child { border-bottom: none; }
 .rpc-header { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .b-grid { grid-template-columns: 1fr; }
   .live-hero { grid-template-columns: repeat(2,1fr); }
   .live-body { grid-template-columns: 1fr; }
