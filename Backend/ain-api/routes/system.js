@@ -392,6 +392,12 @@ module.exports = async function system(req, res, _url, body) {
     return;
   }
 
+  if (body.query_type === 'region') {
+    res.writeHead(400);
+    res.end(JSON.stringify({ error: 'query_type=region is not yet supported' }));
+    return;
+  }
+
   try {
     const step1 = await fetchSdeProfile(body);
     const step2 = await fetchLiveData(step1);

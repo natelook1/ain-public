@@ -34,7 +34,7 @@ README-PRIVATE.md
 # Local editor / tool settings
 .claude/
 
-# scripts/ working folder overflow — only .ps1 and .cjs files are tracked
+# scripts/ working folder overflow — only known scripts are tracked
 scripts/src/
 scripts/Backend/
 scripts/public/
@@ -45,6 +45,12 @@ scripts/*.html
 scripts/*.yml
 scripts/*.md
 scripts/*.ps1
+!scripts/deploy.ps1
+!scripts/deploy-backend.ps1
+!scripts/deploy-n8n-workers.ps1
+!scripts/test_endpoints.ps1
+!scripts/populateSystemsData.cjs
+!scripts/process_map_data.cjs
 scripts/.env
 scripts/.env.*
 scripts/.gitignore
