@@ -89,7 +89,7 @@ function AppContent() {
   const [starmapEverActivated, setStarmapEverActivated] = useState(false);
   useEffect(() => { if (mapMode) setStarmapEverActivated(true); }, [mapMode]);
 
-  const [loadingKillFeed, setLoadingKillFeed] = useState(true);
+  const [loadingKillFeed, setLoadingKillFeed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [errorKillFeed, setErrorKillFeed] = useState(null);
