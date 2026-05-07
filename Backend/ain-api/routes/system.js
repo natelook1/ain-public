@@ -101,11 +101,35 @@ async function fetchLiveData(input) {
 
   let liveJumps = 0, liveNpcKills = 0, liveShipKills = 0, livePodKills = 0;
 
+  const ESI_CACHE_TTL = 300; // ESI updates these every 5 minutes
   try {
-    const [jumpData, killData] = await Promise.all([
-      fetch('https://esi.evetech.net/latest/universe/system_jumps/', { headers: { 'User-Agent': 'AIN-API/1.0' }, signal: AbortSignal.timeout(10000) }).then(r => r.json()),
-      fetch('https://esi.evetech.net/latest/universe/system_kills/',  { headers: { 'User-Agent': 'AIN-API/1.0' }, signal: AbortSignal.timeout(10000) }).then(r => r.json()),
+    const [cachedJumps, cachedKills] = await Promise.all([
+      redis.get('esi:cache:system_jumps'),
+      redis.get('esi:cache:system_kills'),
     ]);
+
+    let jumpData, killData;
+    const toFetch = [];
+    if (!cachedJumps) toFetch.push('jumps');
+    if (!cachedKills) toFetch.push('kills');
+
+    if (toFetch.length > 0) {
+      const fetches = await Promise.all([
+        toFetch.includes('jumps') ? fetch('https://esi.evetech.net/latest/universe/system_jumps/', { headers: { 'User-Agent': 'AIN-API/1.0' }, signal: AbortSignal.timeout(10000) }).then(r => r.json()) : null,
+        toFetch.includes('kills') ? fetch('https://esi.evetech.net/latest/universe/system_kills/', { headers: { 'User-Agent': 'AIN-API/1.0' }, signal: AbortSignal.timeout(10000) }).then(r => r.json()) : null,
+      ]);
+      if (toFetch.includes('jumps')) {
+        jumpData = fetches[0];
+        redis.set('esi:cache:system_jumps', JSON.stringify(jumpData), 'EX', ESI_CACHE_TTL).catch(() => {});
+      }
+      if (toFetch.includes('kills')) {
+        killData = fetches[toFetch.includes('jumps') ? 1 : 0];
+        redis.set('esi:cache:system_kills', JSON.stringify(killData), 'EX', ESI_CACHE_TTL).catch(() => {});
+      }
+    }
+
+    jumpData = jumpData || JSON.parse(cachedJumps);
+    killData = killData || JSON.parse(cachedKills);
     const sj = jumpData.find(s => s.system_id === systemId);
     if (sj) liveJumps = sj.ship_jumps || 0;
     const sk = killData.find(s => s.system_id === systemId);
