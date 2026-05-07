@@ -258,7 +258,7 @@ if ($r.Code -eq 200) {
 }
 
 # ---------------------------------------------------------------------------
-Section 'SSE server  (internal only — skipped when no SseBase provided)'
+Section 'SSE server  (internal only - skipped when no SseBase provided)'
 
 if ($SseBase -and $SseBase -ne 'https://sse-ain.looknet.ca') {
     $r = Invoke-Api "$SseBase/health"
@@ -273,7 +273,7 @@ if ($SseBase -and $SseBase -ne 'https://sse-ain.looknet.ca') {
         else                     { Write-Fail "/publish wrong secret returned $($rBad.Code)" }
     }
 } else {
-    Write-Info "SSE server is internal — pass -SseBase http://<host>:3001 to test it"
+    Write-Info "SSE server is internal - pass -SseBase http://<host>:3001 to test it"
 }
 
 # ---------------------------------------------------------------------------
