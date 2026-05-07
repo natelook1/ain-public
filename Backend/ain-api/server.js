@@ -13,7 +13,8 @@ const intel       = require('./routes/intel');
 const search      = require('./routes/search');
 const stats       = require('./routes/stats');
 const system      = require('./routes/system');
-const ssePresence = require('./routes/ssePresence');
+const ssePresence      = require('./routes/ssePresence');
+const cfTunnelStatus   = require('./routes/cfTunnelStatus');
 
 // ---------------------------------------------------------------------------
 // Request body reader
@@ -84,7 +85,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200); res.end(JSON.stringify({ status: 'ok' })); return;
     }
     if (path === '/webhook/cloudflare-tunnel-status' && req.method === 'GET') {
-      res.writeHead(503); res.end(JSON.stringify({ error: 'CF tunnel status not yet implemented in ain-api' })); return;
+      return await cfTunnelStatus(req, res);
     }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));

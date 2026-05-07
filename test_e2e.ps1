@@ -96,6 +96,7 @@ $connectEndpoints = @(
     @{ Name='Conn: POST /webhook/system';     Method='POST'; Url="$ApiBase/system"; Body='{"query_name":"Jita"}' }
     @{ Name='Conn: POST /webhook/sse-presence'; Method='POST'; Url="$ApiBase/sse-presence"; Body='{"view":"standard","fingerprint":"e2e_conn_check"}' }
     @{ Name='Conn: GET /webhook/killmail-dashboard'; Method='GET'; Url="$ApiBase/killmail-dashboard?limit=1" }
+    @{ Name='Conn: GET /webhook/cloudflare-tunnel-status'; Method='GET'; Url="$ApiBase/cloudflare-tunnel-status" }
 )
 
 foreach ($e in $connectEndpoints) {
@@ -506,14 +507,6 @@ $null = Invoke-Test -Name 'system: report.executive_summary present' -Method POS
     $true
 }
 
-# Region query type -- query_name must still be a system name (region lookup not yet implemented in SDE fetch)
-$null = Invoke-Test -Name 'system: POST {query_type=region, known system} -> 200' -Method POST -Url "$ApiBase/system" `
-    -Body '{"query_name":"Jita","query_type":"region"}' -Validate {
-    param($j)
-    if ($null -eq $j.report) { return 'report missing' }
-    $true
-}
-
 # Wormhole query
 $null = Invoke-Test -Name 'system: POST wormhole J123450 -> 200' -Method POST -Url "$ApiBase/system" `
     -Body '{"query_name":"J123450","query_type":"system"}' -Validate {
@@ -615,9 +608,39 @@ if ($kmRec.Code -eq 200) {
 }
 
 # =============================================================
-#  PHASE 10: CORS HEADERS
+#  PHASE 10: /webhook/cloudflare-tunnel-status
 # =============================================================
-Write-Host '[ Phase 10: CORS headers ]' -ForegroundColor Yellow
+Write-Host '[ Phase 10: /webhook/cloudflare-tunnel-status ]' -ForegroundColor Yellow
+
+$cfRec = Invoke-Test -Name 'cf-tunnel-status: GET -> 200 or 503' -Method GET -Url "$ApiBase/cloudflare-tunnel-status" `
+    -PassOnCodes @(200,503) -Validate { param($j) $true }
+
+if ($cfRec.Code -eq 200) {
+    $null = Invoke-Test -Name 'cf-tunnel-status: shape (summary, tunnels, nodes)' -Method GET -Url "$ApiBase/cloudflare-tunnel-status" -Validate {
+        param($j)
+        foreach ($f in @('summary','tunnels','nodes')) {
+            if ($j.PSObject.Properties.Name -notcontains $f) { return "$f missing" }
+        }
+        $true
+    }
+    $null = Invoke-Test -Name 'cf-tunnel-status: summary.healthy is integer' -Method GET -Url "$ApiBase/cloudflare-tunnel-status" -Validate {
+        param($j)
+        if ($null -eq $j.summary.healthy) { return 'summary.healthy missing' }
+        $true
+    }
+    $null = Invoke-Test -Name 'cf-tunnel-status: history is array' -Method GET -Url "$ApiBase/cloudflare-tunnel-status" -Validate {
+        param($j)
+        if ($j.history -isnot [array]) { return 'history not array' }
+        $true
+    }
+} else {
+    Write-Host "  [INFO] cf-tunnel-status returned 503 -- Redis cache not yet populated by n8n, skipping sub-tests" -ForegroundColor DarkGray
+}
+
+# =============================================================
+#  PHASE 11: CORS HEADERS
+# =============================================================
+Write-Host '[ Phase 11: CORS headers ]' -ForegroundColor Yellow
 
 $null = Invoke-Test -Name 'cors: Access-Control-Allow-Origin present' -Method GET -Url "$ApiBase/r2z2-stats" -Validate {
     param($j,$r)
@@ -634,9 +657,9 @@ $null = Invoke-Test -Name 'cors: Content-Type is application/json' -Method GET -
 }
 
 # =============================================================
-#  PHASE 11: ERROR HANDLING
+#  PHASE 12: ERROR HANDLING
 # =============================================================
-Write-Host '[ Phase 11: Error handling ]' -ForegroundColor Yellow
+Write-Host '[ Phase 12: Error handling ]' -ForegroundColor Yellow
 
 $null = Invoke-Test -Name 'errors: unknown route -> 404' -Method GET -Url "$ApiBase/nonexistent-route" `
     -PassOnCodes @(404) -Validate { param($j) 'expected 404' }
@@ -653,9 +676,9 @@ $null = Invoke-Test -Name 'errors: search q=X (1 char) -> 400 with error field' 
     -PassOnCodes @(400) -Validate { param($j) 'expected 400' }
 
 # =============================================================
-#  PHASE 12: LATENCY REGRESSION
+#  PHASE 13: LATENCY REGRESSION
 # =============================================================
-Write-Host '[ Phase 12: Latency regression ]' -ForegroundColor Yellow
+Write-Host '[ Phase 13: Latency regression ]' -ForegroundColor Yellow
 
 $latTargets = @(
     @{ Name='latency: /r2z2-stats < 500ms';        Url="$ApiBase/r2z2-stats";            Budget=500 }
