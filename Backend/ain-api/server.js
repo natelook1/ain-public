@@ -83,6 +83,9 @@ const server = http.createServer(async (req, res) => {
     if (path === '/health' && req.method === 'GET') {
       res.writeHead(200); res.end(JSON.stringify({ status: 'ok' })); return;
     }
+    if (path === '/webhook/cloudflare-tunnel-status' && req.method === 'GET') {
+      res.writeHead(200); res.end(JSON.stringify({ status: 'ok', tunnel: 'active' })); return;
+    }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));
   } catch (err) {
