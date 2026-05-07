@@ -84,7 +84,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200); res.end(JSON.stringify({ status: 'ok' })); return;
     }
     if (path === '/webhook/cloudflare-tunnel-status' && req.method === 'GET') {
-      res.writeHead(200); res.end(JSON.stringify({ status: 'ok', tunnel: 'active' })); return;
+      res.writeHead(503); res.end(JSON.stringify({ error: 'CF tunnel status not yet implemented in ain-api' })); return;
     }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));
