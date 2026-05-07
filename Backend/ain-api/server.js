@@ -49,6 +49,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const path = url.pathname;
+  console.log(`[${req.method}] ${path} latest_known_id=${url.searchParams.get('latest_known_id')} limit=${url.searchParams.get('limit')}`);
 
   try {
     if (path === '/webhook/feed' && req.method === 'GET') {
