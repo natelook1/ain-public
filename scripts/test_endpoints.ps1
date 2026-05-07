@@ -223,7 +223,7 @@ if ($r9.ok) {
 }
 
 $r10 = Invoke-Api "$ApiBase/system" -Method POST -Body '{"query_name":"The Forge","query_type":"region"}'
-Test-Code 'POST /system {query_type=region} -> 200 or 400' $r10 @(200, 400)
+Test-Code 'POST /system {query_type=region} -> 400 (not implemented)' $r10 @(400)
 
 $r11 = Invoke-Api "$ApiBase/system" -Method POST -Body '{}'
 Test-Code 'POST /system (empty body) -> 400 or 500' $r11 @(400, 500)
