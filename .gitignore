@@ -33,3 +33,18 @@ README-PRIVATE.md
 
 # Local editor / tool settings
 .claude/
+
+# scripts/ working folder overflow — only .ps1 and .cjs files are tracked
+scripts/src/
+scripts/Backend/
+scripts/public/
+scripts/scripts/
+scripts/*.json
+scripts/*.js
+scripts/*.html
+scripts/*.yml
+scripts/*.md
+scripts/*.ps1
+scripts/.env
+scripts/.env.*
+scripts/.gitignore
