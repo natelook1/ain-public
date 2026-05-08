@@ -227,6 +227,7 @@ export interface TunnelData {
   waf_candidates: WafCandidate[]
   threat_history: ThreatHistoryPoint[]
   threat_library: ThreatLibraryEntry[]
+  library_meta?: { total: number; offset: number; limit: number; has_more: boolean }
   fetched_at: string
 }
 

@@ -458,6 +458,68 @@ body.live-mode .brand h1 span { color: var(--green); }
 .th-severity-low { color: var(--muted); }
 .th-snapshot-age { font-size: 10px; color: var(--dim); padding: 8px 16px 0; }
 
+/* ── WAF ACTION PANEL ── */
+.waf-panel { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.waf-panel-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 6px; border-bottom: 1px solid rgba(239,68,68,0.15); }
+.waf-empty { padding: 20px 16px; }
+.waf-card { background: rgba(239,68,68,0.04); border: 1px solid rgba(239,68,68,0.15); border-radius: 8px; padding: 12px 14px; margin: 0 12px; }
+.waf-card-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.waf-ip { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 700; }
+.waf-country { font-size: 10px; color: var(--dim); }
+.waf-hits { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; color: var(--orange); margin-left: auto; }
+.waf-paths { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.waf-path-item { font-size: 9px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; color: var(--dim); word-break: break-all; }
+
+/* ── THREAT LIBRARY ── */
+.lib-root { display: flex; flex-direction: column; }
+.lib-filters {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+.lib-search {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  padding: 5px 10px; border-radius: 6px; outline: none; width: 200px;
+  transition: border-color .15s;
+}
+.lib-search::placeholder { color: var(--dim); }
+.lib-search:focus { border-color: var(--orange); }
+.lib-sev-pills { display: flex; gap: 3px; }
+.sev-pill {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  padding: 4px 9px; border-radius: 5px; cursor: pointer;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; transition: all .12s;
+}
+.sev-pill:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.sev-pill.active { background: rgba(255,255,255,0.08); color: var(--text); border-color: rgba(255,255,255,0.25); }
+.sev-pill.sev-high.active  { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.4); }
+.sev-pill.sev-medium.active { background: rgba(234,179,8,0.12); color: var(--yellow); border-color: rgba(234,179,8,0.35); }
+.sev-pill.sev-low.active   { background: rgba(100,116,139,0.15); color: var(--muted); border-color: rgba(100,116,139,0.35); }
+.lib-toggle {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 5px 10px;
+  border-radius: 6px; cursor: pointer; border: 1px solid var(--border);
+  background: transparent; color: var(--muted); transition: all .12s; white-space: nowrap;
+}
+.lib-toggle:hover { color: var(--text); border-color: var(--orange); }
+.lib-toggle.active { background: var(--orange-dim); color: var(--orange); border-color: var(--orange-border); }
+.lib-sort { display: flex; align-items: center; gap: 4px; }
+.lib-count { margin-left: auto; font-size: 9px; color: var(--dim); white-space: nowrap; }
+.lib-dormant-tag { font-size: 8px; color: var(--dim); margin-left: 5px; background: rgba(255,255,255,0.04); border-radius: 3px; padding: 1px 4px; }
+.lib-load-more { padding: 12px 16px; display: flex; justify-content: center; border-top: 1px solid var(--border); }
+.lib-table { min-width: 700px; }
+
+/* ── RESPONSIVE HIDE HELPERS ── */
+@media (max-width: 900px) {
+  .hide-mobile { display: none; }
+}
+@media (max-width: 600px) {
+  .hide-small { display: none; }
+  .lib-search { width: 100%; }
+  .lib-filters { gap: 6px; }
+}
+
 /* ── FOOTER ── */
 footer {
   text-align: center; font-size: 9px; color: var(--dim);

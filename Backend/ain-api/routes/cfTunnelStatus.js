@@ -5,9 +5,14 @@ const redis = require('../lib/redis');
 
 module.exports = async function cfTunnelStatus(req, res) {
   try {
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const raw = await redis.get('cf:tunnel:status');
     if (!raw) {
-      res.writeHead(503);
+      res.writeHead(503, corsHeaders);
       res.end(JSON.stringify({ error: 'No data cached yet.', fetched_at: null, summary: null, tunnels: [] }));
       return;
     }
@@ -27,19 +32,28 @@ module.exports = async function cfTunnelStatus(req, res) {
       redis.hgetall('cf:threat:known_ips'),
     ]);
 
-    const history       = historyRaw.map(h => JSON.parse(h)).reverse();
-    const threatHistory = threatHistoryRaw.map(h => JSON.parse(h)).reverse();
+    const history       = historyRaw.map(h => { try { return JSON.parse(h); } catch(e) { return null; } }).filter(Boolean).reverse();
+    const threatHistory = threatHistoryRaw.map(h => { try { return JSON.parse(h); } catch(e) { return null; } }).filter(Boolean).reverse();
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const sevOrder = { high: 0, medium: 1, low: 2 };
+    const responseData = JSON.parse(raw);
+    const legacyLibrary = responseData.threat_library || [];
 
     // Use the hash directly — it holds every IP ever seen, no cap
-    const allLibrary = libraryData
+    let allLibrary = libraryData
       ? Object.entries(libraryData).map(([ip, raw]) => {
-          const rec = JSON.parse(raw);
+          let rec = {};
+          try { rec = JSON.parse(raw); } catch(e) {}
           return { ip, ...rec, dormant: rec.last_seen ? rec.last_seen < thirtyDaysAgo : false };
         })
       : [];
+
+    // Fallback: If the Redis hash is capped at 100, but the raw status 
+    // payload still has the 250+ IPs, use the larger dataset.
+    if (legacyLibrary.length > allLibrary.length) {
+      allLibrary = legacyLibrary.map(rec => ({ ...(rec || {}), dormant: (rec && rec.last_seen) ? rec.last_seen < thirtyDaysAgo : false }));
+    }
 
     // WAF candidates from full unfiltered library
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -88,18 +102,17 @@ module.exports = async function cfTunnelStatus(req, res) {
     const libraryTotal = filteredLibrary.length;
     const pagedLibrary = filteredLibrary.slice(offset, offset + limit);
 
-    const responseData = JSON.parse(raw);
     responseData.history          = history;
     responseData.threat_history   = threatHistory;
     responseData.threat_library   = pagedLibrary;
     responseData.library_meta     = { total: libraryTotal, offset, limit, has_more: offset + limit < libraryTotal };
     if (persistentWaf.length > 0) responseData.waf_candidates = persistentWaf;
 
-    res.writeHead(200, { 'Cache-Control': 'max-age=60' });
+    res.writeHead(200, { ...corsHeaders, 'Cache-Control': 'max-age=60' });
     res.end(JSON.stringify(responseData));
   } catch (err) {
     console.error('[cfTunnelStatus]', err.message);
-    res.writeHead(500);
+    res.writeHead(500, { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   }
 };
