@@ -9,8 +9,8 @@
 # =============================================================
 
 param(
-    [string]$ApiBase  = 'http://192.168.30.57:3002/webhook',
-    [string]$HealthBase = 'http://192.168.30.57:3002'
+    [string]$ApiBase  = 'http://YOUR_SERVER_IP:3002/webhook',
+    [string]$HealthBase = 'http://YOUR_SERVER_IP:3002'
 )
 
 $Results = [System.Collections.Generic.List[PSCustomObject]]::new()

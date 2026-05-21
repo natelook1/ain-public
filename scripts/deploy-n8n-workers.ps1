@@ -1,5 +1,5 @@
 param (
-    [string]$AinHost = "192.168.30.57",
+    [string]$AinHost = "YOUR_SERVER_IP",
     [string]$SshUser = "administrator",
     [string]$ComposePath = "/opt/ain",
     [switch]$DryRun
@@ -120,10 +120,10 @@ if "n8n-worker-webhooks" not in src:
       - DB_POSTGRESDB_HOST=db
       - DB_POSTGRESDB_DATABASE=n8n
       - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=n8n_secure_password
+      - DB_POSTGRESDB_PASSWORD=YOUR_DB_PASSWORD
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
-      - N8N_ENCRYPTION_KEY=lCtpgT3B7jh+keKLwvzMQh4Yg41vw+Iv
+      - N8N_ENCRYPTION_KEY=YOUR_N8N_ENCRYPTION_KEY
       - QUEUE_WORKER_CONCURRENCY=25
       - SSE_PUBLISH_SECRET=${SSE_PUBLISH_SECRET}
       - N8N_BLOCK_JS_PYTHON_TASKS=false
@@ -213,5 +213,5 @@ Write-Host "${BOLD}=== Done ===${NC}"
 Write-Host ""
 Write-Host "Expected result: 50 total worker slots (25 per worker)"
 Write-Host "Verify with:  ssh ${target} 'cd $ComposePath && docker compose ps'"
-Write-Host "Test response time:  ssh administrator@192.168.30.67 ""curl -s -o /dev/null -w '%{time_connect}s connect  %{time_total}s total  %{http_code}' https://api-ain.looknet.ca/webhook/feed -k"""
+Write-Host "Test response time:  ssh administrator@YOUR_SERVER_IP ""curl -s -o /dev/null -w '%{time_connect}s connect  %{time_total}s total  %{http_code}' https://api-ain.looknet.ca/webhook/feed -k"""
 Write-Host ""

@@ -104,7 +104,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "eba71a0d-1b82-43ef-ad66-f4a15defe7dc",
+        "path": "YOUR_WEBHOOK_UUID",
         "options": {}
       },
       "type": "n8n-nodes-base.webhook",
@@ -115,12 +115,12 @@
       ],
       "id": "0aba9373-cdd0-4ecb-87dd-c51e2ce7247c",
       "name": "Webhook",
-      "webhookId": "eba71a0d-1b82-43ef-ad66-f4a15defe7dc"
+      "webhookId": "YOUR_WEBHOOK_UUID"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api-ain.looknet.ca/webhook/eba71a0d-1b82-43ef-ad66-f4a15defe7dc",
+        "url": "https://api-ain.looknet.ca/webhook/YOUR_WEBHOOK_UUID",
         "options": {
           "response": {
             "response": {

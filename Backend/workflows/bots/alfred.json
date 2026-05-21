@@ -44,7 +44,7 @@
     {
       "parameters": {
         "guildIds": [
-          "1376260930668855489"
+          "YOUR_DISCORD_GUILD_ID"
         ],
         "channelIds": [
           "1376260930668855492",
@@ -182,10 +182,10 @@
         "resource": "message",
         "guildId": {
           "__rl": true,
-          "value": "1376260930668855489",
+          "value": "YOUR_DISCORD_GUILD_ID",
           "mode": "list",
-          "cachedResultName": "Ore Ya Serious",
-          "cachedResultUrl": "https://discord.com/channels/1376260930668855489"
+          "cachedResultName": "YOUR_DISCORD_SERVER_NAME",
+          "cachedResultUrl": "https://discord.com/channels/YOUR_DISCORD_GUILD_ID"
         },
         "sendTo": "user",
         "userId": {
@@ -217,10 +217,10 @@
         "resource": "message",
         "guildId": {
           "__rl": true,
-          "value": "1376260930668855489",
+          "value": "YOUR_DISCORD_GUILD_ID",
           "mode": "list",
-          "cachedResultName": "Ore Ya Serious",
-          "cachedResultUrl": "https://discord.com/channels/1376260930668855489"
+          "cachedResultName": "YOUR_DISCORD_SERVER_NAME",
+          "cachedResultUrl": "https://discord.com/channels/YOUR_DISCORD_GUILD_ID"
         },
         "channelId": {
           "__rl": true,
@@ -483,7 +483,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.30.56:6333/collections/chat_memory/points/search",
+        "url": "http://YOUR_QDRANT_HOST:6333/collections/chat_memory/points/search",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ {\n  \"vector\": $json.query_embedding,\n  \"limit\": 3,\n  \"with_payload\": true,\n  \"filter\": {\n    \"must\": [\n      {\n        \"key\": \"authorId\",\n        \"match\": {\n          \"value\": $json.authorId\n        }\n      }\n    ]\n  }\n} }}",
@@ -587,7 +587,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "http://192.168.30.56:6333/collections/chat_memory/points",
+        "url": "http://YOUR_QDRANT_HOST:6333/collections/chat_memory/points",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"points\": [ $json.qdrant_point ] } }}",
@@ -1039,7 +1039,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "http://192.168.30.56:6333/collections/chat_memory",
+        "url": "http://YOUR_QDRANT_HOST:6333/collections/chat_memory",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"vectors\": { \"size\": 768, \"distance\": \"Cosine\" } } }}",
@@ -1057,7 +1057,7 @@
     {
       "parameters": {
         "method": "DELETE",
-        "url": "http://192.168.30.56:6333/collections/chat_memory",
+        "url": "http://YOUR_QDRANT_HOST:6333/collections/chat_memory",
         "options": {}
       },
       "id": "c40e5fe3-8cab-4980-a0d7-6a10e721a0d7",

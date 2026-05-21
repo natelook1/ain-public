@@ -11,7 +11,7 @@
     5. Print container status and ain-api startup logs
 
 .PARAMETER RemoteHost
-    SSH target. Default: administrator@192.168.30.57
+    SSH target. Default: administrator@YOUR_SERVER_IP
 
 .PARAMETER ComposePath
     Directory on the remote containing compose.yml. Default: /opt/ain
@@ -31,7 +31,7 @@
     .\scripts\deploy-backend.ps1 -Services ain-api -SkipBuild
 #>
 param(
-    [string]$RemoteHost  = 'administrator@192.168.30.57',
+    [string]$RemoteHost  = 'administrator@YOUR_SERVER_IP',
     [string]$ComposePath = '/opt/ain',
     [string]$Services    = 'ain-api,sse-server',
     [switch]$DryRun,
@@ -152,7 +152,7 @@ Write-Host ''
 Write-Host "${BOLD}${GREEN}=== Done ===${NC}"
 Write-Host ''
 Write-Host 'Smoke test:'
-Write-Host "  curl -s http://192.168.30.57:3002/webhook/r2z2-stats | jq .status"
+Write-Host "  curl -s http://YOUR_SERVER_IP:3002/webhook/r2z2-stats | jq .status"
 Write-Host ''
 Write-Host 'Full endpoint tests:'
 Write-Host '  .\test_endpoints.ps1'

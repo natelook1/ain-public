@@ -289,7 +289,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://discord.com/api/v10/channels/1436186270190538927/messages",
+        "url": "https://discord.com/api/v10/channels/YOUR_DISCORD_CHANNEL_ID/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,

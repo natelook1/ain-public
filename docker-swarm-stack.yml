@@ -7,7 +7,7 @@ services:
     environment:
       - POSTGRES_DB=n8n
       - POSTGRES_USER=n8n
-      - POSTGRES_PASSWORD=n8n_secure_password
+      - POSTGRES_PASSWORD=YOUR_DB_PASSWORD
     volumes:
       - n8n_db_data:/var/lib/postgresql/data
     networks:
@@ -27,11 +27,11 @@ services:
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=n8n
       - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=n8n_secure_password
+      - DB_POSTGRESDB_PASSWORD=YOUR_DB_PASSWORD
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
       - REDIS_HOST=redis
-      - N8N_ENCRYPTION_KEY=lCtpgT3B7jh+keKLwvzMQh4Yg41vw+Iv
+      - N8N_ENCRYPTION_KEY=YOUR_N8N_ENCRYPTION_KEY
 
       # Domain and Proxy Alignment
       - N8N_HOST=dev-ain.looknet.ca
@@ -81,10 +81,10 @@ services:
       - DB_POSTGRESDB_HOST=db
       - DB_POSTGRESDB_DATABASE=n8n
       - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=n8n_secure_password
+      - DB_POSTGRESDB_PASSWORD=YOUR_DB_PASSWORD
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
-      - N8N_ENCRYPTION_KEY=lCtpgT3B7jh+keKLwvzMQh4Yg41vw+Iv
+      - N8N_ENCRYPTION_KEY=YOUR_N8N_ENCRYPTION_KEY
 
       - SSE_PUBLISH_SECRET=${SSE_PUBLISH_SECRET}
 
