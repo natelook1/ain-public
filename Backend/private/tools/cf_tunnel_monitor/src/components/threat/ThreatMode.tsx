@@ -160,27 +160,29 @@ function WafActionPanel({ candidates }: { candidates: TunnelData['waf_candidates
           {copied === 'all' ? 'Copied!' : 'Copy all rules'}
         </button>
       </div>
-      {candidates.map(c => (
-        <div key={c.ip} className="waf-card">
-          <div className="waf-card-hd">
-            <span className="waf-ip" style={{ color: c.severity === 'high' ? 'var(--red)' : 'var(--yellow)' }}>{c.ip}</span>
-            <span className="waf-country">{c.country}</span>
-            <span className="waf-hits">{fmtN(c.total_hits)} hits</span>
-            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>{c.threat_classes.map(tc => <TcBadge key={tc} cls={tc} />)}</div>
-          </div>
-          <div className="waf-rule-box">
-            <code style={{ flex: 1, fontSize: 10, wordBreak: 'break-all' }}>{c.waf_rule}</code>
-            <button className="waf-copy-btn" onClick={() => {
-              navigator.clipboard.writeText(c.waf_rule).then(() => { setCopied(c.ip); setTimeout(() => setCopied(null), 1800) })
-            }}>{copied === c.ip ? 'Copied!' : 'Copy'}</button>
-          </div>
-          {c.sample_paths.length > 0 && (
-            <div className="waf-paths">
-              {c.sample_paths.slice(0, 4).map(p => <code key={p} className="waf-path-item">{p}</code>)}
+      <div className="waf-cards-scroll">
+        {candidates.map(c => (
+          <div key={c.ip} className="waf-card">
+            <div className="waf-card-hd">
+              <span className="waf-ip" style={{ color: c.severity === 'high' ? 'var(--red)' : 'var(--yellow)' }}>{c.ip}</span>
+              <span className="waf-country">{c.country}</span>
+              <span className="waf-hits">{fmtN(c.total_hits)} hits</span>
+              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>{c.threat_classes.map(tc => <TcBadge key={tc} cls={tc} />)}</div>
             </div>
-          )}
-        </div>
-      ))}
+            <div className="waf-rule-box">
+              <code style={{ flex: 1, fontSize: 10, wordBreak: 'break-all' }}>{c.waf_rule}</code>
+              <button className="waf-copy-btn" onClick={() => {
+                navigator.clipboard.writeText(c.waf_rule).then(() => { setCopied(c.ip); setTimeout(() => setCopied(null), 1800) })
+              }}>{copied === c.ip ? 'Copied!' : 'Copy'}</button>
+            </div>
+            {c.sample_paths.length > 0 && (
+              <div className="waf-paths">
+                {c.sample_paths.slice(0, 4).map(p => <code key={p} className="waf-path-item">{p}</code>)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -258,34 +260,36 @@ function ThreatLibrary({ initialData, initialMeta }: {
     <div className="lib-root">
       {/* Filter bar */}
       <div className="lib-filters">
-        <input
-          className="lib-search"
-          type="text"
-          placeholder="Search IP, path, country..."
-          value={filters.search}
-          onChange={e => update({ search: e.target.value })}
-        />
-        <div className="lib-sev-pills">
-          {(['', 'high', 'medium', 'low'] as const).map(s => (
-            <button key={s || 'all'} className={`sev-pill${filters.severity === s ? ' active' : ''}${s ? ` sev-${s}` : ''}`}
-              onClick={() => update({ severity: s }, true)}>
-              {s || 'All'}
-            </button>
-          ))}
+        <div className="lib-filter-row1">
+          <input
+            className="lib-search"
+            type="text"
+            placeholder="Search IP, path, country..."
+            value={filters.search}
+            onChange={e => update({ search: e.target.value })}
+          />
+          <div className="lib-sev-pills">
+            {(['', 'high', 'medium', 'low'] as const).map(s => (
+              <button key={s || 'all'} className={`sev-pill${filters.severity === s ? ' active' : ''}${s ? ` sev-${s}` : ''}`}
+                onClick={() => update({ severity: s }, true)}>
+                {s || 'All'}
+              </button>
+            ))}
+          </div>
+          <button className={`lib-toggle${filters.activeOnly ? ' active' : ''}`} onClick={() => update({ activeOnly: !filters.activeOnly }, true)}>
+            {filters.activeOnly ? 'Active only' : 'All'}
+          </button>
+          <div className="lib-sort">
+            <span style={{ fontSize: 9, color: 'var(--dim)' }}>Sort:</span>
+            {(['last_seen', 'total_hits', 'severity'] as const).map(s => (
+              <button key={s} className="rbtn" style={{ opacity: filters.sort === s ? 1 : 0.45, padding: '3px 8px' }}
+                onClick={() => update({ sort: s }, true)}>
+                {s === 'last_seen' ? 'Recent' : s === 'total_hits' ? 'Hits' : 'Sev'}
+              </button>
+            ))}
+          </div>
         </div>
-        <button className={`lib-toggle${filters.activeOnly ? ' active' : ''}`} onClick={() => update({ activeOnly: !filters.activeOnly }, true)}>
-          {filters.activeOnly ? 'Active only' : 'Active + Dormant'}
-        </button>
-        <div className="lib-sort">
-          <span style={{ fontSize: 9, color: 'var(--dim)' }}>Sort:</span>
-          {(['last_seen', 'total_hits', 'severity'] as const).map(s => (
-            <button key={s} className="rbtn" style={{ opacity: filters.sort === s ? 1 : 0.45 }}
-              onClick={() => update({ sort: s }, true)}>
-              {s === 'last_seen' ? 'Recent' : s === 'total_hits' ? 'Hits' : 'Severity'}
-            </button>
-          ))}
-        </div>
-        <span className="lib-count">{loading ? '...' : `${rows.length} / ${fmtN(total)}`}</span>
+        <span className="lib-count">{loading ? '…' : `${rows.length} / ${fmtN(total)}`}</span>
       </div>
 
       {/* Table */}
@@ -352,65 +356,72 @@ export function ThreatMode({ data }: { data: TunnelData }) {
   const library  = data.threat_library ?? []
   const wafCandidates = data.waf_candidates ?? []
   const snapCount = history.length
+  const uniqueIpCount = Object.keys(history.flatMap(h => h.top_offenders ?? []).reduce((m, o) => { m[o.ip] = true; return m }, {} as Record<string, boolean>)).length
 
   return (
     <div>
-      <ThreatStrip history={history} wafCount={wafCandidates.length} />
-
-      <div style={{ display: 'flex', gap: 0, padding: '0 16px', borderBottom: '1px solid var(--border)' }}>
-        <div className={`mtab${tab === 'waf' ? ' active-threat' : ''}`} style={{ fontSize: 10, padding: '6px 14px', position: 'relative' }}
-          onClick={() => setTab('waf')}>
-          WAF Action
-          {wafCandidates.length > 0 && (
-            <span style={{ marginLeft: 5, background: 'var(--red)', color: '#fff', borderRadius: 10, fontSize: 8, fontWeight: 700, padding: '1px 5px', verticalAlign: 'middle' }}>
-              {wafCandidates.length}
-            </span>
-          )}
-        </div>
-        <div className={`mtab${tab === '24h' ? ' active-threat' : ''}`} style={{ fontSize: 10, padding: '6px 14px' }} onClick={() => setTab('24h')}>
-          24h Window
-        </div>
-        <div className={`mtab${tab === 'library' ? ' active-threat' : ''}`} style={{ fontSize: 10, padding: '6px 14px' }} onClick={() => setTab('library')}>
-          Library {data.library_meta && <Badge color="orange">{fmtN(data.library_meta.total)}</Badge>}
+      {/* Sub-tab nav — same pill container as header mode toggle */}
+      <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="mode-toggle">
+          <div className={`mtab${tab === 'waf' ? ' active-threat' : ''}`} onClick={() => setTab('waf')}>
+            WAF Action
+            {wafCandidates.length > 0 && (
+              <span style={{ marginLeft: 5, background: 'var(--red)', color: '#fff', borderRadius: 10, fontSize: 8, fontWeight: 700, padding: '1px 5px', verticalAlign: 'middle' }}>
+                {wafCandidates.length}
+              </span>
+            )}
+          </div>
+          <div className={`mtab${tab === '24h' ? ' active-threat' : ''}`} onClick={() => setTab('24h')}>
+            24h Window
+          </div>
+          <div className={`mtab${tab === 'library' ? ' active-threat' : ''}`} onClick={() => setTab('library')}>
+            Library {data.library_meta && <Badge color="orange">{fmtN(data.library_meta.total)}</Badge>}
+          </div>
         </div>
       </div>
 
       {tab === 'waf' && (
         <div style={{ padding: '16px' }}>
-          <WafActionPanel candidates={wafCandidates} />
+          <Panel
+            title="WAF Candidates"
+            badge={<Badge color="red">{wafCandidates.length} IPs · high-sev · active 7d</Badge>}
+          >
+            <WafActionPanel candidates={wafCandidates} />
+          </Panel>
         </div>
       )}
 
       {tab === '24h' && (
-        <div className="b-grid" style={{ marginTop: 0 }}>
-          <div className="col">
-            <Panel
-              title="Threat Trend · 24h"
-              badge={<Badge color="muted">{snapCount} snapshot{snapCount !== 1 ? 's' : ''}</Badge>}
-            >
-              <ThreatTrend history={history} />
-            </Panel>
+        <>
+          <ThreatStrip history={history} wafCount={wafCandidates.length} />
+          <div className="b-grid" style={{ marginTop: 0 }}>
+            <div className="col">
+              <Panel
+                title="Threat Trend · 24h"
+                badge={<Badge color="muted">{snapCount} snapshot{snapCount !== 1 ? 's' : ''}</Badge>}
+              >
+                <ThreatTrend history={history} />
+              </Panel>
 
-            <Panel
-              title="Top Offenders · 24h"
-              badge={<Badge color="red">
-                {Object.keys(history.flatMap(h => h.top_offenders ?? []).reduce((m, o) => { m[o.ip] = true; return m }, {} as Record<string, boolean>)).length} IPs
-              </Badge>}
-            >
-              <TopOffenders history={history} />
-            </Panel>
-          </div>
+              <Panel
+                title="Top Offenders · 24h"
+                badge={<Badge color="red">{uniqueIpCount} IPs</Badge>}
+              >
+                <TopOffenders history={history} />
+              </Panel>
+            </div>
 
-          <div className="col">
-            <Panel title="Current Hour · Activity Log" badge={<Badge color="muted">Latest snapshot</Badge>}>
-              <ThreatIntelPanel
-                threatLog={data.threat_log ?? []}
-                threatSummary={data.threat_summary}
-                wafCandidates={wafCandidates}
-              />
-            </Panel>
+            <div className="col">
+              <Panel title="Live Activity · Current Snapshot" badge={<Badge color="muted">Latest</Badge>}>
+                <ThreatIntelPanel
+                  threatLog={data.threat_log ?? []}
+                  threatSummary={data.threat_summary}
+                  wafCandidates={wafCandidates}
+                />
+              </Panel>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {tab === 'library' && (
