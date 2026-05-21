@@ -47,16 +47,26 @@ sed -i \
   scripts/deploy-n8n-workers.ps1
 
 sed -i \
+  -e 's/n8n_secure_password/YOUR_DB_PASSWORD/g' \
+  -e 's/lCtpgT3B7jh+keKLwvzMQh4Yg41vw+Iv/YOUR_N8N_ENCRYPTION_KEY/g' \
+  docker-swarm-stack.yml
+
+sed -i \
   -e 's/192\.168\.30\.57/YOUR_SERVER_IP/g' \
   -e 's/192\.168\.30\.67/YOUR_SERVER_IP/g' \
-  scripts/AIN-BACKEND-MIGRATION.md
+  test_e2e.ps1
 
 # ── Remove private-only files ─────────────────────────────────────────────────
 
 git rm -r --cached Backend/tools/AlfredInt/ 2>/dev/null || true
 git rm --cached Backend/workflows/webhooks/webhook_intel.json 2>/dev/null || true
 git rm -r --cached Backend/private/ 2>/dev/null || true
-rm -rf Backend/tools/AlfredInt/ Backend/workflows/webhooks/webhook_intel.json Backend/private/
+git rm --cached AIN-BACKEND-MIGRATION.md 2>/dev/null || true
+git rm --cached publish-public.sh 2>/dev/null || true
+git rm --cached deploy.ps1 2>/dev/null || true
+git rm --cached .env.example 2>/dev/null || true
+rm -rf Backend/tools/AlfredInt/ Backend/workflows/webhooks/webhook_intel.json Backend/private/ \
+  AIN-BACKEND-MIGRATION.md publish-public.sh deploy.ps1 .env.example
 
 # ── Commit and push ───────────────────────────────────────────────────────────
 
@@ -72,6 +82,6 @@ git checkout master
 git branch -D "$TEMP_BRANCH"
 
 # The sed commands ran on working files — restore originals from master
-git checkout -- Backend/ scripts/
+git checkout -- Backend/ scripts/ docker-swarm-stack.yml test_e2e.ps1
 
 echo "==> Done. Public repo updated."
